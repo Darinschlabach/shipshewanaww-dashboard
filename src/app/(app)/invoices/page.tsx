@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
@@ -90,7 +90,7 @@ function InvoiceMetricCard({
   );
 }
 
-function InvoicesPageContent() {
+export default function InvoicesPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const statusParam = searchParams.get("status") as InvoiceTab | null;
@@ -693,13 +693,5 @@ function InvoicesPageContent() {
       </Modal>
       )}
     </>
-  );
-}
-
-export default function InvoicesPage() {
-  return (
-    <Suspense fallback={<p className="text-gray-500">Loading invoices…</p>}>
-      <InvoicesPageContent />
-    </Suspense>
   );
 }
