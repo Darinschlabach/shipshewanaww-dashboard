@@ -83,7 +83,7 @@ function DashboardCard({
 }
 
 export default function DashboardView() {
-  const [weekStart, setWeekStart] = useState(() => startOfWeek(new Date()));
+  const [weekStart] = useState(() => startOfWeek(new Date()));
   const [loading, setLoading] = useState(true);
   const [leads, setLeads] = useState<Lead[]>([]);
   const [jobs, setJobs] = useState<(Job & { contacts: { name: string } | null })[]>([]);

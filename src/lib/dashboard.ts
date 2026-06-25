@@ -1,14 +1,6 @@
 import { formatProductionJobNumber } from "@/lib/production";
-import {
-  countByPoDisplayStatus,
-  normalizePoDisplayStatus,
-  sumByPoDisplayStatus,
-} from "@/lib/purchase-orders";
-import {
-  formatQuoteNumber,
-  normalizeQuoteStatus,
-  quotePipelineValue,
-} from "@/lib/quotes";
+import { normalizePoDisplayStatus } from "@/lib/purchase-orders";
+import { formatQuoteNumber, normalizeQuoteStatus } from "@/lib/quotes";
 import type { Job, Lead, PurchaseOrder } from "@/lib/types";
 import { formatWeekRange, startOfWeek, addDays } from "@/lib/calendar";
 
@@ -134,7 +126,6 @@ export function deriveInvoiceMetrics(jobs: Job[]) {
     return new Date(`${j.due_date}T12:00:00`) < now;
   }).reduce((s, j) => s + Number(j.total_value) - Number(j.billing_collected), 0);
 
-  const yearStart = new Date(now.getFullYear(), 0, 1);
   const paidYtd = jobs.reduce((s, j) => s + Number(j.billing_collected), 0);
   const paidMonth = jobs
     .filter((j) => new Date(j.updated_at) >= new Date(now.getFullYear(), now.getMonth(), 1))

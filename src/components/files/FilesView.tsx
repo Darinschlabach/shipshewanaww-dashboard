@@ -12,7 +12,6 @@ import {
   IconFileTypePdf,
   IconFilter,
   IconFolder,
-  IconFolderPlus,
   IconLayoutGrid,
   IconList,
   IconPhoto,

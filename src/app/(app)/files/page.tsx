@@ -4,7 +4,6 @@ import {
   IconChevronDown,
   IconDots,
   IconFolderPlus,
-  IconUpload,
 } from "@tabler/icons-react";
 import PageHeader from "@/components/PageHeader";
 import FilesView from "@/components/files/FilesView";
