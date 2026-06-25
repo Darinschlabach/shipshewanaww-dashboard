@@ -54,7 +54,7 @@ export default function QuotePrintPage() {
         .select("id, name, email, phone, address")
         .eq("id", quote.contact_id)
         .maybeSingle();
-      if (contact) quote = { ...quote, contacts: contact };
+      if (contact) quote = { ...quote, contacts: contact as Contact };
     }
 
     if (!quote) {

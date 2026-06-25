@@ -204,7 +204,7 @@ function deriveTiming(
     { start: 9 * 60, end: 11 * 60 },
   ];
   const slot = slots[index % slots.length];
-  return { isAllDay: false, ...slot };
+  return { isAllDay: false, startMinutes: slot.start, endMinutes: slot.end };
 }
 
 export function enrichCalendarEvent(

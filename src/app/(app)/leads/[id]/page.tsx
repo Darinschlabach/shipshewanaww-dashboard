@@ -51,7 +51,7 @@ export default function QuoteDetailPage() {
         .select("id, name, email, phone, address")
         .eq("id", lead.contact_id)
         .maybeSingle();
-      if (contact) lead = { ...lead, contacts: contact };
+      if (contact) lead = { ...lead, contacts: contact as Contact };
     }
     setQuote(lead);
     setLoading(false);
