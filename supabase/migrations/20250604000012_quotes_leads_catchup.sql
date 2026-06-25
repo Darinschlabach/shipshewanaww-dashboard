@@ -1,0 +1,14 @@
+-- Catch-up: quote columns on leads (safe to re-run if 20250604000001 was skipped)
+
+ALTER TABLE leads ADD COLUMN IF NOT EXISTS quote_number TEXT;
+ALTER TABLE leads ADD COLUMN IF NOT EXISTS source TEXT DEFAULT 'Direct Customer';
+ALTER TABLE leads ADD COLUMN IF NOT EXISTS designer TEXT;
+ALTER TABLE leads ADD COLUMN IF NOT EXISTS sent_at DATE;
+ALTER TABLE leads ADD COLUMN IF NOT EXISTS job_address TEXT;
+ALTER TABLE leads ADD COLUMN IF NOT EXISTS contact_id UUID REFERENCES contacts(id) ON DELETE SET NULL;
+ALTER TABLE leads ADD COLUMN IF NOT EXISTS job_id UUID REFERENCES jobs(id) ON DELETE SET NULL;
+
+ALTER TYPE lead_status ADD VALUE IF NOT EXISTS 'draft';
+ALTER TYPE lead_status ADD VALUE IF NOT EXISTS 'sent';
+ALTER TYPE lead_status ADD VALUE IF NOT EXISTS 'revision';
+ALTER TYPE lead_status ADD VALUE IF NOT EXISTS 'approved';

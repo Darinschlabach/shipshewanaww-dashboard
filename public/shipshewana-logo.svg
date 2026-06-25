@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 280 100" role="img" aria-label="Shipshewana Woodworks">
+  <g fill="#2d2d2d">
+    <path d="M118 6 L140 6 L140 28 L128 28 L128 38 L118 38 Z"/>
+    <path d="M142 6 L164 6 L164 38 L154 38 L154 28 L142 28 Z"/>
+    <path d="M128 6 L134 6 L134 22 L128 22 Z M146 6 L152 6 L152 22 L146 22 Z"/>
+    <text x="140" y="58" text-anchor="middle" font-family="Georgia, 'Times New Roman', serif" font-size="22">Shipshewana</text>
+    <line x1="72" y1="72" x2="108" y2="72" stroke="#2d2d2d" stroke-width="1"/>
+    <text x="140" y="78" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="10" font-weight="700" letter-spacing="2.5">WOODWORKS</text>
+    <line x1="172" y1="72" x2="208" y2="72" stroke="#2d2d2d" stroke-width="1"/>
+  </g>
+</svg>
