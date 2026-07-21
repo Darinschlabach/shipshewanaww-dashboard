@@ -233,7 +233,10 @@ function buildTodayAgenda(
           ? "All day"
           : formatMinutesLabel(event.startMinutes),
         title: event.taskName,
-        subtitle: event.clientName !== "—" ? event.clientName : event.jobNumber,
+        subtitle:
+          event.clientName !== "—"
+            ? event.clientName
+            : (event.jobNumber ?? "—"),
         priority: "Medium",
         icon: "calendar",
         sortMinutes: event.isAllDay ? 0 : event.startMinutes,
