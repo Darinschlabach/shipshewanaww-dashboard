@@ -77,6 +77,13 @@ export function quoteItemNeedsDimensions(item: QuoteItemPricingFields): boolean 
   return item.category === "cabinets" && Number(item.sq_ft_price) > 0;
 }
 
+/** Manually added qty + unit-price rows (not from the catalogue). */
+export function isMiscQuoteItem(
+  item: Pick<QuoteRoomItem, "item_type" | "catalogue_id">
+): boolean {
+  return item.item_type === "Misc" && item.catalogue_id == null;
+}
+
 /**
  * Returns calculated line price, or null if qty/dimensions are incomplete.
  * Cabinets with a cubic ft rate: qty × (base price + cubic ft × cubic ft price).

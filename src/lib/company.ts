@@ -17,6 +17,10 @@ export const QUOTE_FOOTER_SUBTAG = "FAMILY-OWNED • QUALITY CRAFTSMANSHIP • P
 /** Indiana state sales tax applied to quote PDF totals. */
 export const QUOTE_SALES_TAX_RATE = 0.07;
 
+export function quoteSalesTax(subtotal: number, includeTax: boolean): number {
+  return includeTax ? subtotal * QUOTE_SALES_TAX_RATE : 0;
+}
+
 export const QUOTE_PROPOSAL_LEGAL =
   "All material guaranteed to be as specified. All work to be completed in a workmanlike manner according to standard practices. Any alteration or deviation from above specifications involving extra cost will be executed only upon written orders and will become an extra charge over and above the estimate. All agreements contingent upon strikes, accidents or delays beyond our control. Owner to carry fire, tornado and other necessary insurance.";
 

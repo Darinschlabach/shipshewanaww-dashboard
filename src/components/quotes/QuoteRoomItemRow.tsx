@@ -10,6 +10,7 @@ import {
 import { IconPencil, IconTrash } from "@tabler/icons-react";
 import {
   calculateQuoteItemPrice,
+  isMiscQuoteItem,
   parseOptionalDimension,
   parseOptionalInt,
   quoteItemNeedsDimensions,
@@ -37,6 +38,13 @@ interface QuoteRoomItemRowProps {
   onEnterComplete: (itemId: string) => void;
 }
 
+function parseOptionalMoney(value: string): number | null {
+  const trimmed = value.trim().replace(/[$,]/g, "");
+  if (!trimmed) return null;
+  const n = parseFloat(trimmed);
+  return Number.isFinite(n) && n >= 0 ? n : null;
+}
+
 const QuoteRoomItemRow = forwardRef<QuoteRoomItemRowHandle, QuoteRoomItemRowProps>(
   function QuoteRoomItemRow(
     {
@@ -49,8 +57,9 @@ const QuoteRoomItemRow = forwardRef<QuoteRoomItemRowHandle, QuoteRoomItemRowProp
     },
     ref
   ) {
+    const isMisc = isMiscQuoteItem(item);
     const needsDimensions =
-      showDimensionColumns && quoteItemNeedsDimensions(item);
+      !isMisc && showDimensionColumns && quoteItemNeedsDimensions(item);
     const priceOptions =
       item.category === "cabinets"
         ? { cabinetMultiplier }
@@ -59,6 +68,7 @@ const QuoteRoomItemRow = forwardRef<QuoteRoomItemRowHandle, QuoteRoomItemRowProp
     const widthRef = useRef<HTMLInputElement>(null);
     const lengthRef = useRef<HTMLInputElement>(null);
     const heightRef = useRef<HTMLInputElement>(null);
+    const unitPriceRef = useRef<HTMLInputElement>(null);
 
     const [qty, setQty] = useState(item.qty != null ? String(item.qty) : "");
     const [width, setWidth] = useState(
@@ -69,6 +79,13 @@ const QuoteRoomItemRow = forwardRef<QuoteRoomItemRowHandle, QuoteRoomItemRowProp
     );
     const [height, setHeight] = useState(
       item.height_in != null ? String(item.height_in) : ""
+    );
+    const [linePrice, setLinePrice] = useState(
+      item.price > 0
+        ? String(item.price)
+        : item.base_price > 0
+          ? String(item.base_price)
+          : ""
     );
     const [isLocked, setIsLocked] = useState(() =>
       quoteItemPriceIsReady(item, priceOptions)
@@ -87,20 +104,47 @@ const QuoteRoomItemRow = forwardRef<QuoteRoomItemRowHandle, QuoteRoomItemRowProp
       setWidth(item.width_in != null ? String(item.width_in) : "");
       setLength(item.length_in != null ? String(item.length_in) : "");
       setHeight(item.height_in != null ? String(item.height_in) : "");
+      setLinePrice(
+        item.price > 0
+          ? String(item.price)
+          : item.base_price > 0
+            ? String(item.base_price)
+            : ""
+      );
     }, [item, isLocked]);
 
-    const previewPrice = calculateQuoteItemPrice(
-      {
-        ...item,
-        qty: parseOptionalInt(qty),
-        width_in: parseOptionalDimension(width),
-        length_in: parseOptionalDimension(length),
-        height_in: parseOptionalDimension(height),
-      },
-      priceOptions
-    );
+    const parsedQty = parseOptionalInt(qty);
+    const parsedLinePrice = parseOptionalMoney(linePrice);
+    const miscUnitPrice =
+      isMisc && parsedQty != null && parsedLinePrice != null && parsedQty > 0
+        ? parsedLinePrice / parsedQty
+        : isMisc
+          ? (parsedLinePrice ?? 0)
+          : item.base_price;
 
-    async function commitDimensions() {
+    const draftItem = {
+      ...item,
+      qty: parsedQty,
+      width_in: parseOptionalDimension(width),
+      length_in: parseOptionalDimension(length),
+      height_in: parseOptionalDimension(height),
+      base_price: isMisc ? miscUnitPrice : item.base_price,
+    };
+
+    const previewPrice = isMisc
+      ? parsedQty != null && parsedLinePrice != null && parsedQty >= 1
+        ? Math.round(parsedLinePrice * 100) / 100
+        : null
+      : calculateQuoteItemPrice(draftItem, priceOptions);
+
+    async function commitFields() {
+      if (isMisc) {
+        await onUpdate(item.id, {
+          qty: parsedQty,
+          base_price: miscUnitPrice,
+        });
+        return;
+      }
       await onUpdate(item.id, {
         qty: parseOptionalInt(qty),
         width_in: parseOptionalDimension(width),
@@ -110,16 +154,19 @@ const QuoteRoomItemRow = forwardRef<QuoteRoomItemRowHandle, QuoteRoomItemRowProp
     }
 
     async function finishEntry() {
-      const draft = {
-        ...item,
-        qty: parseOptionalInt(qty),
-        width_in: parseOptionalDimension(width),
-        length_in: parseOptionalDimension(length),
-        height_in: parseOptionalDimension(height),
-      };
-      if (!quoteItemPriceIsReady(draft, priceOptions)) return;
+      if (isMisc) {
+        if (parsedQty == null || parsedLinePrice == null || parsedQty < 1) {
+          return;
+        }
+        await commitFields();
+        setIsLocked(true);
+        onEnterComplete(item.id);
+        return;
+      }
 
-      await commitDimensions();
+      if (!quoteItemPriceIsReady(draftItem, priceOptions)) return;
+
+      await commitFields();
       setIsLocked(true);
       onEnterComplete(item.id);
     }
@@ -145,6 +192,13 @@ const QuoteRoomItemRow = forwardRef<QuoteRoomItemRowHandle, QuoteRoomItemRowProp
       setWidth(item.width_in != null ? String(item.width_in) : "");
       setLength(item.length_in != null ? String(item.length_in) : "");
       setHeight(item.height_in != null ? String(item.height_in) : "");
+      setLinePrice(
+        item.price > 0
+          ? String(item.price)
+          : item.base_price > 0
+            ? String(item.base_price)
+            : ""
+      );
       setIsLocked(false);
       requestAnimationFrame(() => {
         qtyRef.current?.focus();
@@ -181,7 +235,11 @@ const QuoteRoomItemRow = forwardRef<QuoteRoomItemRowHandle, QuoteRoomItemRowProp
               onKeyDown={(e) =>
                 handleEnterKey(
                   e,
-                  needsDimensions ? widthRef : undefined
+                  isMisc
+                    ? unitPriceRef
+                    : needsDimensions
+                      ? widthRef
+                      : undefined
                 )
               }
               placeholder="—"
@@ -261,7 +319,24 @@ const QuoteRoomItemRow = forwardRef<QuoteRoomItemRowHandle, QuoteRoomItemRowProp
           </>
         )}
         <td className="py-2 pr-2 text-right tabular-nums text-gray-900">
-          {previewPrice != null ? formatCurrencyFull(previewPrice) : "—"}
+          {isMisc && !isLocked ? (
+            <input
+              ref={unitPriceRef}
+              type="number"
+              min={0}
+              step="0.01"
+              value={linePrice}
+              onChange={(e) => setLinePrice(e.target.value)}
+              onKeyDown={(e) => handleEnterKey(e)}
+              placeholder="0.00"
+              className={`${dimInputClass} ml-auto w-20 text-right`}
+              aria-label={`Price for ${item.item_type}`}
+            />
+          ) : previewPrice != null ? (
+            formatCurrencyFull(previewPrice)
+          ) : (
+            "—"
+          )}
         </td>
         <td className="py-2">
           <div className="flex items-center justify-end gap-0.5">
@@ -270,7 +345,13 @@ const QuoteRoomItemRow = forwardRef<QuoteRoomItemRowHandle, QuoteRoomItemRowProp
               onClick={unlock}
               className="rounded p-1 text-gray-400 hover:bg-gray-100 hover:text-burgundy"
               aria-label={`Edit ${item.item_type}`}
-              title={needsDimensions ? "Edit qty and dimensions" : "Edit qty"}
+              title={
+                isMisc
+                  ? "Edit qty and price"
+                  : needsDimensions
+                    ? "Edit qty and dimensions"
+                    : "Edit qty"
+              }
             >
               <IconPencil size={14} />
             </button>

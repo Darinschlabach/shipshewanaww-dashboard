@@ -3,7 +3,7 @@ import {
   QUOTE_ACCEPTANCE_TEXT,
   QUOTE_PDF_TERMS_BAR,
   QUOTE_PROPOSAL_LEGAL,
-  QUOTE_SALES_TAX_RATE,
+  quoteSalesTax,
 } from "@/lib/company";
 import type { QuoteDocumentData } from "@/lib/quote-document";
 import { formatCurrencyPrecise } from "@/lib/utils";
@@ -17,13 +17,14 @@ const blackletter: CSSProperties = {
 
 interface QuotePdfProposalFooterProps {
   data: QuoteDocumentData;
+  includeTax?: boolean;
 }
 
-function computeTotals(data: QuoteDocumentData) {
+function computeTotals(data: QuoteDocumentData, includeTax: boolean) {
   const cabinets = data.roomsTotal;
   const accessories = data.servicesTotal;
   const subtotal = cabinets + accessories;
-  const tax = subtotal * QUOTE_SALES_TAX_RATE;
+  const tax = quoteSalesTax(subtotal, includeTax);
   const grandTotal = subtotal + tax;
   return { cabinets, accessories, subtotal, tax, grandTotal };
 }
@@ -72,8 +73,9 @@ function TotalRow({
 
 export default function QuotePdfProposalFooter({
   data,
+  includeTax = false,
 }: QuotePdfProposalFooterProps) {
-  const totals = computeTotals(data);
+  const totals = computeTotals(data, includeTax);
 
   return (
     <footer style={{ fontFamily: "Arial, Helvetica, sans-serif", color: "#000" }}>

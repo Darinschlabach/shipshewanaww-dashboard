@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { createClient } from "@/lib/supabase/client";
+import PasswordInput from "@/components/PasswordInput";
 
 export default function LoginPage() {
   const [email, setEmail] = useState("");
@@ -36,7 +37,9 @@ export default function LoginPage() {
     const supabase = createClient();
     const { error: resetError } = await supabase.auth.resetPasswordForEmail(
       email,
-      { redirectTo: `${window.location.origin}/auth/callback` }
+      {
+        redirectTo: `${window.location.origin}/auth/callback?next=/reset-password`,
+      },
     );
     if (resetError) {
       setError(resetError.message);
@@ -72,12 +75,10 @@ export default function LoginPage() {
             <label className="mb-1 block text-sm font-medium text-gray-700">
               Password
             </label>
-            <input
-              type="password"
+            <PasswordInput
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               required
-              className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-burgundy focus:outline-none focus:ring-1 focus:ring-burgundy"
             />
           </div>
 

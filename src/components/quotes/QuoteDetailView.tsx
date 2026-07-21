@@ -5,8 +5,6 @@ import Link from "next/link";
 import {
   IconArrowLeft,
   IconArrowRight,
-  IconCheck,
-  IconCircle,
   IconFileTypePdf,
   IconMail,
   IconMapPin,
@@ -37,7 +35,7 @@ import {
   quoteServicesTotal,
 } from "@/lib/quote-services";
 import { downloadQuotePdf } from "@/lib/download-quote-pdf";
-import { COMPANY } from "@/lib/company";
+import { COMPANY, quoteSalesTax } from "@/lib/company";
 import { formatCurrencyFull, formatDateLong } from "@/lib/utils";
 import type { Lead } from "@/lib/types";
 
@@ -47,43 +45,6 @@ const TABS = [
   { id: "services", label: "Services" },
   { id: "files", label: "Files", countKey: "fileCount" as const },
 ];
-
-function Checklist({
-  items,
-  showEdit,
-}: {
-  items: { id: string; label: string; done: boolean }[];
-  showEdit?: boolean;
-}) {
-  return (
-    <div>
-      {showEdit && (
-        <div className="mb-2 flex justify-end">
-          <button
-            type="button"
-            className="text-xs font-medium text-burgundy hover:underline"
-          >
-            Edit
-          </button>
-        </div>
-      )}
-      <ul className="space-y-2">
-        {items.map((item) => (
-          <li key={item.id} className="flex items-start gap-2 text-sm">
-            {item.done ? (
-              <IconCheck size={16} className="mt-0.5 shrink-0 text-green-600" />
-            ) : (
-              <IconCircle size={16} className="mt-0.5 shrink-0 text-gray-300" stroke={1.5} />
-            )}
-            <span className={item.done ? "text-gray-700" : "text-gray-600"}>
-              {item.label}
-            </span>
-          </li>
-        ))}
-      </ul>
-    </div>
-  );
-}
 
 interface QuoteDetailViewProps {
   quote: Lead;
@@ -122,15 +83,30 @@ export default function QuoteDetailView({
     roomSummaries.length > 0 || servicesTotal > 0
       ? projectTotal
       : Number(quote.est_value);
+  const [includeTax, setIncludeTax] = useState(false);
+  const [leadTimeWeeks, setLeadTimeWeeks] = useState(() => {
+    const stored = Number(quote.lead_time_weeks);
+    return String(Number.isFinite(stored) && stored > 0 ? stored : 7);
+  });
+  const quotePreviewTotal =
+    displayTotal + quoteSalesTax(displayTotal, includeTax);
   const [downloadingPdf, setDownloadingPdf] = useState(false);
   const [pdfError, setPdfError] = useState<string | null>(null);
 
   const isConverted = quote.status === "converted";
 
+  function resolvedLeadTimeWeeks(): number {
+    const parsed = parseInt(leadTimeWeeks, 10);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : 7;
+  }
+
   async function handleDownloadPdf() {
     setDownloadingPdf(true);
     setPdfError(null);
-    const { error } = await downloadQuotePdf(quote);
+    const { error } = await downloadQuotePdf(quote, {
+      includeTax,
+      leadTimeWeeks: resolvedLeadTimeWeeks(),
+    });
     if (error) setPdfError(error);
     setDownloadingPdf(false);
   }
@@ -161,6 +137,20 @@ export default function QuoteDetailView({
   useEffect(() => {
     setJobName(quote.project_type);
   }, [quote.project_type]);
+
+  useEffect(() => {
+    const stored = Number(quote.lead_time_weeks);
+    setLeadTimeWeeks(String(Number.isFinite(stored) && stored > 0 ? stored : 7));
+  }, [quote.lead_time_weeks]);
+
+  async function persistLeadTimeWeeks(weeks: number) {
+    const supabase = createClient();
+    await supabase
+      .from("leads")
+      .update({ lead_time_weeks: weeks })
+      .eq("id", quote.id);
+    onQuoteUpdated?.();
+  }
 
   async function handleSaveJobName(e: FormEvent) {
     e.preventDefault();
@@ -292,7 +282,7 @@ export default function QuoteDetailView({
 
       {activeTab === "overview" && (
         <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-        <div className="mb-3 grid shrink-0 grid-cols-2 gap-0 divide-x divide-gray-200 rounded-lg border border-gray-200 bg-white md:grid-cols-5">
+        <div className="mb-3 grid shrink-0 grid-cols-2 gap-0 divide-x divide-gray-200 rounded-lg border border-gray-200 bg-white md:grid-cols-4">
           <div className="p-3">
             <p className="text-xs font-medium uppercase tracking-wide text-gray-500">
               Customer
@@ -362,17 +352,9 @@ export default function QuoteDetailView({
               </div>
             </dl>
           </div>
-          <div className="p-3">
-            <p className="text-xs font-medium uppercase tracking-wide text-gray-500">
-              Status
-            </p>
-            <div className="mt-2">
-              <Checklist items={meta.statusSteps} />
-            </div>
-          </div>
         </div>
 
-          <div className="grid min-h-0 flex-1 grid-cols-1 gap-3 overflow-y-auto lg:grid-cols-3 lg:overflow-hidden">
+          <div className="grid min-h-0 flex-1 grid-cols-1 gap-3 overflow-y-auto lg:grid-cols-2 lg:overflow-hidden">
             <div className="flex min-h-0 flex-col overflow-hidden rounded-lg border border-gray-200 bg-white p-4">
               <h3 className="mb-2 shrink-0 text-xs font-semibold uppercase tracking-wide text-gray-500">
                 Project Summary
@@ -428,37 +410,41 @@ export default function QuoteDetailView({
               )}
             </div>
 
-            <div className="flex min-h-0 flex-col gap-3 overflow-hidden">
-              <div className="shrink-0 rounded-lg border border-gray-200 bg-white p-4">
-                <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-500">
-                  Next Action
-                </h3>
-                <Checklist items={meta.nextActions} showEdit />
-              </div>
-              <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border border-gray-200 bg-white p-4">
-                <h3 className="mb-2 shrink-0 text-xs font-semibold uppercase tracking-wide text-gray-500">
-                  Customer Message
-                </h3>
-                <div className="min-h-0 flex-1 overflow-y-auto">
-                  <p className="whitespace-pre-wrap text-sm leading-relaxed text-gray-700">
-                    {meta.customerMessage}
-                  </p>
-                </div>
-                <div className="mt-2 flex shrink-0 justify-end">
-                  <button
-                    type="button"
-                    className="text-xs font-medium text-burgundy hover:underline"
-                  >
-                    Edit Message
-                  </button>
-                </div>
-              </div>
-            </div>
-
             <div className="flex min-h-0 flex-col overflow-hidden rounded-lg border border-gray-200 bg-white p-4">
-              <h3 className="mb-2 shrink-0 text-xs font-semibold uppercase tracking-wide text-gray-500">
-                Quote Preview
-              </h3>
+              <div className="mb-2 flex shrink-0 items-center justify-between gap-2">
+                <h3 className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                  Quote Preview
+                </h3>
+                <div className="flex shrink-0 items-center gap-3">
+                  <label className="flex items-center gap-1.5 text-xs text-gray-600">
+                    <span>Lead time</span>
+                    <input
+                      type="number"
+                      min={1}
+                      step={1}
+                      value={leadTimeWeeks}
+                      onChange={(e) => setLeadTimeWeeks(e.target.value)}
+                      onBlur={() => {
+                        const weeks = resolvedLeadTimeWeeks();
+                        setLeadTimeWeeks(String(weeks));
+                        void persistLeadTimeWeeks(weeks);
+                      }}
+                      className="w-12 rounded border border-gray-300 px-1.5 py-0.5 text-center text-xs text-gray-900"
+                      aria-label="Lead time in weeks"
+                    />
+                    <span>weeks</span>
+                  </label>
+                  <label className="flex cursor-pointer items-center gap-1.5 text-xs text-gray-600">
+                    <input
+                      type="checkbox"
+                      checked={includeTax}
+                      onChange={(e) => setIncludeTax(e.target.checked)}
+                      className="h-3.5 w-3.5 rounded border-gray-300 text-burgundy focus:ring-burgundy"
+                    />
+                    Include tax
+                  </label>
+                </div>
+              </div>
               <div className="mb-3 flex min-h-0 flex-1 flex-col items-center justify-center overflow-hidden rounded-lg border border-gray-200 bg-gradient-to-b from-gray-50 to-white p-4 text-center">
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img
@@ -476,7 +462,7 @@ export default function QuoteDetailView({
                   {meta.title}
                 </p>
                 <p className="mt-1 text-lg font-semibold text-gray-900">
-                  {formatCurrencyFull(displayTotal)}
+                  {formatCurrencyFull(quotePreviewTotal)}
                 </p>
                 <p className="mt-0.5 text-[10px] text-gray-500">
                   {formatQuoteNumber(quote)}

@@ -1,4 +1,4 @@
-import { COMPANY, QUOTE_SALES_TAX_RATE } from "@/lib/company";
+import { COMPANY, quoteSalesTax } from "@/lib/company";
 import type { QuoteDocumentData } from "@/lib/quote-document";
 import { formatCurrencyPrecise, formatDateLong } from "@/lib/utils";
 import QuotePdfRoomPage from "./QuotePdfRoomPage";
@@ -7,11 +7,17 @@ import { PDF_BAR_COLOR, PDF_PAGE_HEIGHT_PX, pdfPage } from "./quote-pdf-styles";
 
 interface QuotePdfDocumentProps {
   data: QuoteDocumentData;
+  includeTax?: boolean;
+  leadTimeWeeks?: number;
 }
 
 const PROJECT_SUMMARY_ROW_COUNT = 10;
 
-export default function QuotePdfDocument({ data }: QuotePdfDocumentProps) {
+export default function QuotePdfDocument({
+  data,
+  includeTax = false,
+  leadTimeWeeks = 7,
+}: QuotePdfDocumentProps) {
   const totalPages = 1 + data.rooms.length;
 
   return (
@@ -21,6 +27,8 @@ export default function QuotePdfDocument({ data }: QuotePdfDocumentProps) {
         pageNumber={1}
         totalPages={totalPages}
         showThankYou={data.rooms.length === 0}
+        includeTax={includeTax}
+        leadTimeWeeks={leadTimeWeeks}
       />
       {data.rooms.map((room, index) => (
         <QuotePdfRoomPage
@@ -42,15 +50,21 @@ function QuotePdfSummaryPage({
   pageNumber,
   totalPages,
   showThankYou = false,
+  includeTax = false,
+  leadTimeWeeks = 7,
 }: {
   data: QuoteDocumentData;
   pageNumber: number;
   totalPages: number;
   showThankYou?: boolean;
+  includeTax?: boolean;
+  leadTimeWeeks?: number;
 }) {
-  const subtotal = data.roomsTotal + data.servicesTotal;
-  const tax = subtotal * QUOTE_SALES_TAX_RATE;
-  const total = subtotal + tax;
+  const delivery = data.deliveryTotal;
+  const fullAmount = data.roomsTotal + data.servicesTotal;
+  const subtotal = fullAmount - delivery;
+  const tax = quoteSalesTax(fullAmount, includeTax);
+  const total = fullAmount + tax;
   const projectRows = data.rooms;
   const summaryRows = [
     ...projectRows.map((room, index) => ({
@@ -64,7 +78,6 @@ function QuotePdfSummaryPage({
       room: null,
     })),
   ];
-  const leadTimeWeeks = 7;
   const safeValue = (value: string) => value?.trim() || "—";
 
   return (
@@ -351,7 +364,7 @@ function QuotePdfSummaryPage({
           </colgroup>
           <tbody>
             {[
-              ["DELIVERY", formatCurrencyPrecise(0)],
+              ["DELIVERY", formatCurrencyPrecise(delivery)],
               ["SUBTOTAL", formatCurrencyPrecise(subtotal)],
               ["SALES TAX", formatCurrencyPrecise(tax)],
             ].map(([label, value]) => (

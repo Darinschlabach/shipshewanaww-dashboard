@@ -44,7 +44,7 @@ export type CalendarEventType =
   | "deadline"
   | "other";
 export type UserRole = "owner" | "office" | "shop";
-export type RoomFinishType = "Painted" | "Stained";
+export type RoomFinishType = string;
 
 export const CONTACT_TYPES = [
   "Customers",
@@ -106,6 +106,45 @@ export interface Job {
   contacts?: Contact | null;
 }
 
+export const ROOM_OVERLAY_OPTIONS = [
+  "Full Overlay",
+  "Half Overlay",
+  "Inset",
+] as const;
+
+export const ROOM_HARDWARE_OPTIONS = ["Blum", "Salice"] as const;
+
+export type RoomOverlay = (typeof ROOM_OVERLAY_OPTIONS)[number];
+export type RoomHardware = (typeof ROOM_HARDWARE_OPTIONS)[number];
+
+export const DRAFTING_FOR_ALL_ROOMS = "All rooms";
+export const DRAFTING_FOR_MISC = "Misc";
+
+export interface DraftingQuestion {
+  id: string;
+  job_id: string;
+  room_id: string | null;
+  for_room: string;
+  question: string;
+  answer: string | null;
+  status: "open" | "answered";
+  asked_on: string;
+  answered_on: string | null;
+  created_at: string;
+}
+
+export interface ProductionTask {
+  id: string;
+  job_id: string;
+  room_id: string | null;
+  for_room: string;
+  subject: string;
+  details: string | null;
+  due_date: string;
+  completed: boolean;
+  created_at: string;
+}
+
 export interface Room {
   id: string;
   job_id: string;
@@ -114,6 +153,10 @@ export interface Room {
   door_style: string | null;
   finish_type: RoomFinishType | null;
   finish_color: string | null;
+  overlay: string | null;
+  hardware: string | null;
+  base_molding: string | null;
+  crown_molding: string | null;
   notes: string | null;
   created_at: string;
 }
@@ -138,6 +181,7 @@ export interface QuoteService {
   description: string | null;
   price: number;
   sort_order: number;
+  is_delivery: boolean;
   created_at: string;
 }
 
@@ -176,6 +220,7 @@ export interface Lead {
   contact_id: string | null;
   job_id: string | null;
   converted_job_id: string | null;
+  lead_time_weeks?: number | null;
   created_at: string;
   updated_at: string;
   contacts?: Contact | null;
@@ -194,6 +239,11 @@ export interface PurchaseOrder {
   delivered_at: string | null;
   archived_at: string | null;
   expected_delivery: string | null;
+  title?: string | null;
+  category?: string | null;
+  po_type?: string | null;
+  received_amount?: number | null;
+  ui_status?: string | null;
   created_at: string;
   updated_at: string;
   jobs?: { id: string; name: string } | null;

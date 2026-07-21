@@ -35,9 +35,7 @@ const inputClass =
   "w-full rounded-md border border-gray-300 px-3 py-2 text-sm";
 
 export default function ContactsPage() {
-  const [contacts, setContacts] = useState<(Contact & { job_count: number })[]>(
-    []
-  );
+  const [contacts, setContacts] = useState<Contact[]>([]);
   const [search, setSearch] = useState("");
   const [typeFilter, setTypeFilter] = useState<TypeFilter>("All");
   const [loading, setLoading] = useState(true);
@@ -52,17 +50,7 @@ export default function ContactsPage() {
       .select("*")
       .order("name");
 
-    const withCounts = await Promise.all(
-      (contactsData ?? []).map(async (c) => {
-        const { count } = await supabase
-          .from("jobs")
-          .select("*", { count: "exact", head: true })
-          .eq("customer_id", c.id);
-        return { ...c, job_count: count ?? 0 };
-      })
-    );
-
-    setContacts(withCounts as (Contact & { job_count: number })[]);
+    setContacts((contactsData as Contact[]) ?? []);
     setLoading(false);
   }, []);
 
@@ -177,9 +165,8 @@ export default function ContactsPage() {
               <div>
                 <p className="font-medium text-gray-900">{contact.name}</p>
                 <p className="text-sm text-gray-500">
-                  {contact.job_count} job{contact.job_count !== 1 ? "s" : ""}
-                  {contact.email && ` · ${contact.email}`}
-                  {contact.phone && ` · ${contact.phone}`}
+                  {[contact.email, contact.phone].filter(Boolean).join(" · ") ||
+                    "—"}
                 </p>
               </div>
             </Link>

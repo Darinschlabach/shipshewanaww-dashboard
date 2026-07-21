@@ -17,7 +17,6 @@ export interface QuoteDetailMeta {
   jobAddress: string;
   followUpDate: string | null;
   expirationDate: string | null;
-  statusSteps: QuoteChecklistItem[];
   nextActions: QuoteChecklistItem[];
   customerMessage: string;
   fileCount: number;
@@ -65,12 +64,6 @@ export function buildQuoteDetail(lead: Lead): QuoteDetailMeta {
     jobAddress: lead.job_address?.trim() || "—",
     followUpDate: followUp,
     expirationDate: sentDate ? addDays(sentDate, 30) : addDays(created, 30),
-    statusSteps: [
-      { id: "1", label: "Quote Created", done: true },
-      { id: "2", label: "Drawings Completed", done: sent },
-      { id: "3", label: "Quote Sent", done: sent },
-      { id: "4", label: "Approval Received", done: approved },
-    ],
     nextActions: [
       { id: "a1", label: "Measure Completed", done: true },
       { id: "a2", label: "Drawings Completed", done: sent },

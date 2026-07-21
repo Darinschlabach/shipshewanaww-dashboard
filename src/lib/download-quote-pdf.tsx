@@ -149,8 +149,15 @@ async function renderFullWhitePage(pdf: jsPDF, pageEl: HTMLElement): Promise<voi
 }
 
 export async function downloadQuotePdf(
-  quote: Lead
+  quote: Lead,
+  options?: { includeTax?: boolean; leadTimeWeeks?: number }
 ): Promise<{ error?: string }> {
+  const includeTax = options?.includeTax ?? false;
+  const leadTimeWeeks =
+    options?.leadTimeWeeks ??
+    (Number.isFinite(Number(quote.lead_time_weeks))
+      ? Number(quote.lead_time_weeks)
+      : 7);
   const result = await fetchQuoteDocumentData(quote);
   if (result.error || !result.data) {
     return { error: result.error ?? "Could not load quote." };
@@ -164,7 +171,13 @@ export async function downloadQuotePdf(
     root = createRoot(frame.mount);
 
     flushSync(() => {
-      root!.render(createElement(QuotePdfDocument, { data: result.data! }));
+      root!.render(
+        createElement(QuotePdfDocument, {
+          data: result.data!,
+          includeTax,
+          leadTimeWeeks,
+        })
+      );
     });
 
     await waitForImages(frame.mount);

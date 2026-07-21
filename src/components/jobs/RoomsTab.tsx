@@ -7,8 +7,24 @@ import {
 } from "@tabler/icons-react";
 import { createClient } from "@/lib/supabase/client";
 import type { Room } from "@/lib/types";
+import {
+  ROOM_HARDWARE_OPTIONS,
+  ROOM_OVERLAY_OPTIONS,
+} from "@/lib/types";
 import Button from "@/components/Button";
 import Modal from "@/components/Modal";
+import CreatableSpecSelect from "@/components/CreatableSpecSelect";
+import {
+  addBaseMoldingOption,
+  addCrownMoldingOption,
+  addDoorStyleOption,
+  addFinishColorOption,
+  addFinishTypeOption,
+  addWoodSpeciesOption,
+  fetchRoomSpecOptions,
+  mergeRoomSpecOptions,
+  type RoomSpecOptions,
+} from "@/lib/room-spec-options";
 
 interface RoomsTabProps {
   jobId: string;
@@ -18,8 +34,12 @@ type RoomFormState = {
   name: string;
   wood_species: string;
   door_style: string;
-  finish_type: "Painted" | "Stained";
+  finish_type: string;
   finish_color: string;
+  overlay: string;
+  hardware: string;
+  base_molding: string;
+  crown_molding: string;
   notes: string;
 };
 
@@ -27,10 +47,49 @@ const EMPTY_ROOM_FORM: RoomFormState = {
   name: "",
   wood_species: "",
   door_style: "",
-  finish_type: "Painted",
+  finish_type: "",
   finish_color: "",
+  overlay: "",
+  hardware: "",
+  base_molding: "",
+  crown_molding: "",
   notes: "",
 };
+
+const selectClass =
+  "w-full rounded-md border border-gray-300 px-3 py-2 text-sm";
+
+function SpecSelect({
+  label,
+  value,
+  options,
+  onChange,
+  placeholder = "Select…",
+}: {
+  label: string;
+  value: string;
+  options: readonly string[];
+  onChange: (value: string) => void;
+  placeholder?: string;
+}) {
+  return (
+    <div>
+      <label className="mb-1 block text-sm font-medium">{label}</label>
+      <select
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className={selectClass}
+      >
+        <option value="">{placeholder}</option>
+        {options.map((option) => (
+          <option key={option} value={option}>
+            {option}
+          </option>
+        ))}
+      </select>
+    </div>
+  );
+}
 
 export default function RoomsTab({ jobId }: RoomsTabProps) {
   const [rooms, setRooms] = useState<Room[]>([]);
@@ -42,6 +101,19 @@ export default function RoomsTab({ jobId }: RoomsTabProps) {
   const [savingRoom, setSavingRoom] = useState(false);
   const [deletingRoomId, setDeletingRoomId] = useState<string | null>(null);
   const [roomForm, setRoomForm] = useState<RoomFormState>(EMPTY_ROOM_FORM);
+  const [specOptions, setSpecOptions] = useState<RoomSpecOptions>({
+    woodSpecies: [],
+    doorStyles: [],
+    finishTypes: [],
+    finishColors: [],
+    baseMoldings: [],
+    crownMoldings: [],
+  });
+
+  const loadSpecOptions = useCallback(async (room?: Room | null) => {
+    const options = await fetchRoomSpecOptions();
+    setSpecOptions(mergeRoomSpecOptions(options, room));
+  }, []);
 
   const loadRooms = useCallback(async () => {
     setLoading(true);
@@ -59,6 +131,10 @@ export default function RoomsTab({ jobId }: RoomsTabProps) {
     loadRooms();
   }, [loadRooms]);
 
+  useEffect(() => {
+    void loadSpecOptions();
+  }, [loadSpecOptions]);
+
   const roomCountLabel = useMemo(() => {
     const count = rooms.length;
     return `${count} room${count === 1 ? "" : "s"}`;
@@ -67,6 +143,7 @@ export default function RoomsTab({ jobId }: RoomsTabProps) {
   function openCreateRoomModal() {
     setEditingRoom(null);
     setRoomForm(EMPTY_ROOM_FORM);
+    void loadSpecOptions();
     setShowRoomForm(true);
   }
 
@@ -76,11 +153,23 @@ export default function RoomsTab({ jobId }: RoomsTabProps) {
       name: room.name,
       wood_species: room.wood_species ?? "",
       door_style: room.door_style ?? "",
-      finish_type: room.finish_type ?? "Painted",
+      finish_type: room.finish_type ?? "",
       finish_color: room.finish_color ?? "",
+      overlay: room.overlay ?? "",
+      hardware: room.hardware ?? "",
+      base_molding: room.base_molding ?? "",
+      crown_molding: room.crown_molding ?? "",
       notes: room.notes ?? "",
     });
+    void loadSpecOptions(room);
     setShowRoomForm(true);
+  }
+
+  async function refreshSpecOptions(room?: Room | null) {
+    const options = await fetchRoomSpecOptions();
+    const merged = mergeRoomSpecOptions(options, room);
+    setSpecOptions(merged);
+    return merged;
   }
 
   function openRoomDetail(room: Room) {
@@ -102,8 +191,12 @@ export default function RoomsTab({ jobId }: RoomsTabProps) {
           name: roomForm.name.trim(),
           wood_species: roomForm.wood_species.trim() || null,
           door_style: roomForm.door_style.trim() || null,
-          finish_type: roomForm.finish_type,
+          finish_type: roomForm.finish_type.trim() || null,
           finish_color: roomForm.finish_color.trim() || null,
+          overlay: roomForm.overlay.trim() || null,
+          hardware: roomForm.hardware.trim() || null,
+          base_molding: roomForm.base_molding.trim() || null,
+          crown_molding: roomForm.crown_molding.trim() || null,
           notes: roomForm.notes.trim() || null,
         })
         .eq("id", editingRoom.id);
@@ -113,8 +206,12 @@ export default function RoomsTab({ jobId }: RoomsTabProps) {
         name: roomForm.name.trim(),
         wood_species: roomForm.wood_species.trim() || null,
         door_style: roomForm.door_style.trim() || null,
-        finish_type: roomForm.finish_type,
+        finish_type: roomForm.finish_type.trim() || null,
         finish_color: roomForm.finish_color.trim() || null,
+        overlay: roomForm.overlay.trim() || null,
+        hardware: roomForm.hardware.trim() || null,
+        base_molding: roomForm.base_molding.trim() || null,
+        crown_molding: roomForm.crown_molding.trim() || null,
         notes: roomForm.notes.trim() || null,
       });
     }
@@ -171,7 +268,11 @@ export default function RoomsTab({ jobId }: RoomsTabProps) {
               room.wood_species?.trim() &&
               room.door_style?.trim() &&
               room.finish_type?.trim() &&
-              room.finish_color?.trim()
+              room.finish_color?.trim() &&
+              room.overlay?.trim() &&
+              room.hardware?.trim() &&
+              room.base_molding?.trim() &&
+              room.crown_molding?.trim()
             );
             const finishValue =
               room.finish_type?.trim() && room.finish_color?.trim()
@@ -182,15 +283,15 @@ export default function RoomsTab({ jobId }: RoomsTabProps) {
               <button
                 key={room.id}
                 type="button"
-                className="group flex min-h-[162px] w-full flex-col overflow-hidden rounded-lg border border-gray-200 bg-white text-left shadow-sm transition hover:shadow-md"
+                className="group flex w-full flex-col overflow-hidden rounded-lg border border-gray-200 bg-white text-left shadow-sm transition hover:shadow-md"
                 onClick={() => openRoomDetail(room)}
               >
                 <div
-                  className={`flex h-full border-l-6 ${
+                  className={`border-l-6 ${
                     hasCompleteSpecs ? "border-burgundy" : "border-gray-300"
                   }`}
                 >
-                  <div className="flex w-full flex-col p-4">
+                  <div className="p-4">
                     <div className="mb-3 flex items-start justify-between">
                       <div className="text-xl font-semibold text-gray-900">{room.name}</div>
                       <div className="flex items-center gap-2">
@@ -229,7 +330,7 @@ export default function RoomsTab({ jobId }: RoomsTabProps) {
                         <span className="text-gray-800">Door style</span>
                         {displaySpecValue(room.door_style)}
                       </div>
-                      <div className="flex items-start justify-between gap-2 border-b border-gray-200 pb-1.5">
+                      <div className="flex items-start justify-between gap-2 pb-1.5">
                         <span className="text-gray-800">Finish</span>
                         {finishValue ? (
                           <span className="text-right font-semibold text-gray-900">
@@ -240,13 +341,6 @@ export default function RoomsTab({ jobId }: RoomsTabProps) {
                         )}
                       </div>
                     </div>
-
-                    <div className="mt-auto flex items-center justify-between pt-3 text-base">
-                      <span className="max-w-[70%] truncate text-gray-800">
-                        {room.notes?.trim() || "No notes yet"}
-                      </span>
-                      <span className="font-semibold text-burgundy">View →</span>
-                    </div>
                   </div>
                 </div>
               </button>
@@ -256,7 +350,7 @@ export default function RoomsTab({ jobId }: RoomsTabProps) {
           <button
             type="button"
             onClick={openCreateRoomModal}
-            className="flex min-h-[162px] items-center justify-center rounded-lg border-2 border-dashed border-gray-300 bg-white text-xl font-medium text-gray-700 transition hover:border-burgundy hover:text-burgundy"
+            className="flex min-h-[132px] items-center justify-center rounded-lg border-2 border-dashed border-gray-300 bg-white text-xl font-medium text-gray-700 transition hover:border-burgundy hover:text-burgundy"
           >
             <span className="inline-flex items-center gap-2">+ Add room</span>
           </button>
@@ -272,55 +366,107 @@ export default function RoomsTab({ jobId }: RoomsTabProps) {
                 required
                 value={roomForm.name}
                 onChange={(e) => setRoomForm((prev) => ({ ...prev, name: e.target.value }))}
-                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
+                className={selectClass}
               />
             </div>
-            <div>
-              <label className="mb-1 block text-sm font-medium">Wood species</label>
-              <input
+
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <CreatableSpecSelect
+                label="Wood species"
                 value={roomForm.wood_species}
-                onChange={(e) =>
-                  setRoomForm((prev) => ({ ...prev, wood_species: e.target.value }))
+                options={specOptions.woodSpecies}
+                onChange={(wood_species) =>
+                  setRoomForm((prev) => ({ ...prev, wood_species }))
                 }
-                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
+                onAddOption={async (name) => {
+                  const saved = await addWoodSpeciesOption(name);
+                  if (saved) await refreshSpecOptions(editingRoom);
+                  return saved;
+                }}
               />
-            </div>
-            <div>
-              <label className="mb-1 block text-sm font-medium">Door style</label>
-              <input
+              <CreatableSpecSelect
+                label="Door style"
                 value={roomForm.door_style}
-                onChange={(e) =>
-                  setRoomForm((prev) => ({ ...prev, door_style: e.target.value }))
+                options={specOptions.doorStyles}
+                onChange={(door_style) =>
+                  setRoomForm((prev) => ({ ...prev, door_style }))
                 }
-                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
+                onAddOption={async (name) => {
+                  const saved = await addDoorStyleOption(name);
+                  if (saved) await refreshSpecOptions(editingRoom);
+                  return saved;
+                }}
               />
-            </div>
-            <div>
-              <label className="mb-1 block text-sm font-medium">Finish type</label>
-              <select
+              <CreatableSpecSelect
+                label="Finish type"
                 value={roomForm.finish_type}
-                onChange={(e) =>
-                  setRoomForm((prev) => ({
-                    ...prev,
-                    finish_type: e.target.value as "Painted" | "Stained",
-                  }))
+                options={specOptions.finishTypes}
+                onChange={(finish_type) =>
+                  setRoomForm((prev) => ({ ...prev, finish_type }))
                 }
-                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
-              >
-                <option value="Painted">Painted</option>
-                <option value="Stained">Stained</option>
-              </select>
-            </div>
-            <div>
-              <label className="mb-1 block text-sm font-medium">Finish color</label>
-              <input
+                onAddOption={async (name) => {
+                  const saved = await addFinishTypeOption(name);
+                  if (saved) await refreshSpecOptions(editingRoom);
+                  return saved;
+                }}
+              />
+              <CreatableSpecSelect
+                label="Finish color"
                 value={roomForm.finish_color}
-                onChange={(e) =>
-                  setRoomForm((prev) => ({ ...prev, finish_color: e.target.value }))
+                options={specOptions.finishColors}
+                onChange={(finish_color) =>
+                  setRoomForm((prev) => ({ ...prev, finish_color }))
                 }
-                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
+                onAddOption={async (name) => {
+                  const saved = await addFinishColorOption(name);
+                  if (saved) await refreshSpecOptions(editingRoom);
+                  return saved;
+                }}
+              />
+              <SpecSelect
+                label="Overlay"
+                value={roomForm.overlay}
+                options={ROOM_OVERLAY_OPTIONS}
+                onChange={(overlay) =>
+                  setRoomForm((prev) => ({ ...prev, overlay }))
+                }
+              />
+              <SpecSelect
+                label="Hardware"
+                value={roomForm.hardware}
+                options={ROOM_HARDWARE_OPTIONS}
+                onChange={(hardware) =>
+                  setRoomForm((prev) => ({ ...prev, hardware }))
+                }
+              />
+              <CreatableSpecSelect
+                label="Base molding"
+                value={roomForm.base_molding}
+                options={specOptions.baseMoldings}
+                onChange={(base_molding) =>
+                  setRoomForm((prev) => ({ ...prev, base_molding }))
+                }
+                onAddOption={async (name) => {
+                  const saved = await addBaseMoldingOption(name);
+                  if (saved) await refreshSpecOptions(editingRoom);
+                  return saved;
+                }}
+              />
+              <CreatableSpecSelect
+                label="Crown molding"
+                value={roomForm.crown_molding}
+                options={specOptions.crownMoldings}
+                onChange={(crown_molding) =>
+                  setRoomForm((prev) => ({ ...prev, crown_molding }))
+                }
+                onAddOption={async (name) => {
+                  const saved = await addCrownMoldingOption(name);
+                  if (saved) await refreshSpecOptions(editingRoom);
+                  return saved;
+                }}
               />
             </div>
+
             <div>
               <label className="mb-1 block text-sm font-medium">Notes</label>
               <textarea
@@ -365,10 +511,34 @@ export default function RoomsTab({ jobId }: RoomsTabProps) {
                     {selectedRoom.finish_type?.trim() || "TBD"}
                   </dd>
                 </div>
-                <div className="flex items-start justify-between gap-4">
+                <div className="flex items-start justify-between gap-4 border-b border-gray-200 pb-2">
                   <dt className="text-gray-500">Finish color</dt>
                   <dd className="font-semibold text-gray-900">
                     {selectedRoom.finish_color?.trim() || "TBD"}
+                  </dd>
+                </div>
+                <div className="flex items-start justify-between gap-4 border-b border-gray-200 pb-2">
+                  <dt className="text-gray-500">Overlay</dt>
+                  <dd className="font-semibold text-gray-900">
+                    {selectedRoom.overlay?.trim() || "TBD"}
+                  </dd>
+                </div>
+                <div className="flex items-start justify-between gap-4 border-b border-gray-200 pb-2">
+                  <dt className="text-gray-500">Hardware</dt>
+                  <dd className="font-semibold text-gray-900">
+                    {selectedRoom.hardware?.trim() || "TBD"}
+                  </dd>
+                </div>
+                <div className="flex items-start justify-between gap-4 border-b border-gray-200 pb-2">
+                  <dt className="text-gray-500">Base molding</dt>
+                  <dd className="font-semibold text-gray-900">
+                    {selectedRoom.base_molding?.trim() || "TBD"}
+                  </dd>
+                </div>
+                <div className="flex items-start justify-between gap-4">
+                  <dt className="text-gray-500">Crown molding</dt>
+                  <dd className="font-semibold text-gray-900">
+                    {selectedRoom.crown_molding?.trim() || "TBD"}
                   </dd>
                 </div>
               </dl>
@@ -380,10 +550,6 @@ export default function RoomsTab({ jobId }: RoomsTabProps) {
                 {selectedRoom.notes?.trim() || "No notes yet"}
               </p>
             </div>
-
-            <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
-              Additional room properties coming soon
-            </p>
 
             <div className="flex justify-end gap-3">
               <Button

@@ -235,10 +235,6 @@ export default function JobFinancialsQuotes({ jobId }: JobFinancialsQuotesProps)
         <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
           <div>
             <h2 className="text-lg font-semibold text-gray-900">Quotes</h2>
-            <p className="mt-1 max-w-xl text-sm text-gray-500">
-              Create and send quotes for this job. Convert an accepted quote to
-              an invoice to get started.
-            </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <select

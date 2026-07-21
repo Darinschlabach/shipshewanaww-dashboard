@@ -9,7 +9,7 @@ import {
   roomTotal,
   type QuoteRoomWithItems,
 } from "@/lib/quote-rooms";
-import { fetchQuoteServices, quoteServicesTotal } from "@/lib/quote-services";
+import { fetchQuoteServices, quoteDeliveryTotal, quoteServicesTotal } from "@/lib/quote-services";
 import { formatQuoteNumber } from "@/lib/quotes";
 import type { Lead, QuoteRoomItem, QuoteService } from "@/lib/types";
 
@@ -60,6 +60,7 @@ export type QuoteDocumentData = {
   services: QuoteDocumentService[];
   roomsTotal: number;
   servicesTotal: number;
+  deliveryTotal: number;
   quoteTotal: number;
   customerMessage: string;
 };
@@ -152,6 +153,7 @@ export async function fetchQuoteDocumentData(
   const documentServices = mapServices(services);
   const roomsTotal = documentRooms.reduce((sum, room) => sum + room.roomTotal, 0);
   const servicesTotal = quoteServicesTotal(services);
+  const deliveryTotal = quoteDeliveryTotal(services);
   const quoteTotal = roomsTotal + servicesTotal;
 
   return {
@@ -173,6 +175,7 @@ export async function fetchQuoteDocumentData(
       services: documentServices,
       roomsTotal,
       servicesTotal,
+      deliveryTotal,
       quoteTotal:
         documentRooms.length > 0 || documentServices.length > 0
           ? quoteTotal

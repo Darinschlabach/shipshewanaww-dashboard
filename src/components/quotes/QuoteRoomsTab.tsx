@@ -346,6 +346,7 @@ export default function QuoteRoomsTab({
         width_in: merged.width_in,
         length_in: merged.length_in,
         height_in: merged.height_in,
+        base_price: merged.base_price,
         price,
       })
       .eq("id", itemId);
@@ -364,6 +365,59 @@ export default function QuoteRoomsTab({
       );
       void syncQuoteEstValue(next);
       return next;
+    });
+  }
+
+  async function addMiscLineItem() {
+    if (!selectedRoom) return;
+
+    const supabase = createClient();
+    const maxOrder = selectedRoom.items.reduce(
+      (m, i) => Math.max(m, i.sort_order),
+      -1
+    );
+
+    const { data, error } = await supabase
+      .from("quote_room_items")
+      .insert({
+        room_id: selectedRoom.id,
+        sort_order: maxOrder + 1,
+        item_type: "Misc",
+        description: null,
+        qty: 1,
+        width_in: null,
+        length_in: null,
+        height_in: null,
+        catalogue_id: null,
+        catalogue_source: null,
+        base_price: 0,
+        sq_ft_price: 0,
+        price: 0,
+        category: "labor",
+      })
+      .select("*")
+      .single();
+
+    if (error || !data) return;
+
+    const newItem = data as QuoteRoomItem;
+    setRooms((prev) => {
+      const next = prev.map((room) =>
+        room.id === selectedRoom.id
+          ? {
+              ...room,
+              items: sortQuoteRoomItems([...room.items, newItem]),
+            }
+          : room
+      );
+      void syncQuoteEstValue(next);
+      return next;
+    });
+
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        rowRefs.current.get(newItem.id)?.focusQty();
+      });
     });
   }
 
@@ -653,14 +707,23 @@ export default function QuoteRoomsTab({
               />
 
               <div className="flex min-h-0 flex-1 flex-col overflow-auto px-6 py-2">
-                <h3 className="mb-2 shrink-0 text-xs font-semibold uppercase tracking-wide text-gray-500">
-                  Items in this Room
-                  {isDragOver && (
-                    <span className="ml-2 font-normal normal-case text-burgundy">
-                      — drop to add
-                    </span>
-                  )}
-                </h3>
+                <div className="mb-2 flex shrink-0 items-center justify-between gap-3">
+                  <h3 className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                    Items in this Room
+                    {isDragOver && (
+                      <span className="ml-2 font-normal normal-case text-burgundy">
+                        — drop to add
+                      </span>
+                    )}
+                  </h3>
+                  <button
+                    type="button"
+                    onClick={() => void addMiscLineItem()}
+                    className="text-xs font-semibold uppercase tracking-wide text-burgundy hover:underline"
+                  >
+                    + Add line item
+                  </button>
+                </div>
                 <table
                   className={`w-full text-left text-sm ${showDimensionColumns ? "min-w-[720px]" : "min-w-[480px]"}`}
                 >

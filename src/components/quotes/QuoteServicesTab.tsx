@@ -16,8 +16,11 @@ import {
 } from "@dnd-kit/sortable";
 import { createClient } from "@/lib/supabase/client";
 import {
+  DELIVERY_SERVICE_NAME,
   fetchQuoteCabinetsTotal,
   fetchQuoteServices,
+  isDeliveryService,
+  partitionQuoteServices,
   quoteServicesTotal,
   reorderQuoteServices,
 } from "@/lib/quote-services";
@@ -69,11 +72,18 @@ export default function QuoteServicesTab({
   }, [load]);
 
   const servicesTotal = useMemo(() => quoteServicesTotal(services), [services]);
+  const { delivery, otherServices } = useMemo(
+    () => partitionQuoteServices(services),
+    [services]
+  );
 
   async function handleAddService() {
     setAdding(true);
     const supabase = createClient();
-    const maxOrder = services.reduce((max, row) => Math.max(max, row.sort_order), -1);
+    const maxOrder = otherServices.reduce(
+      (max, row) => Math.max(max, row.sort_order),
+      delivery ? delivery.sort_order : -1
+    );
 
     const { data, error: insertError } = await supabase
       .from("quote_services")
@@ -94,7 +104,11 @@ export default function QuoteServicesTab({
     }
 
     const created = data as QuoteService;
-    setServices((prev) => [...prev, created]);
+    setServices((prev) => {
+      const { delivery: deliveryRow, otherServices: others } =
+        partitionQuoteServices(prev);
+      return deliveryRow ? [deliveryRow, ...others, created] : [created];
+    });
     setEditingId(created.id);
     onQuoteUpdated?.();
   }
@@ -103,24 +117,38 @@ export default function QuoteServicesTab({
     id: string,
     patch: Pick<QuoteService, "name" | "description" | "price">
   ) {
+    const existing = services.find((row) => row.id === id);
+    const isDelivery = existing ? isDeliveryService(existing) : false;
     const supabase = createClient();
     await supabase
       .from("quote_services")
       .update({
-        name: patch.name,
+        name: isDelivery ? DELIVERY_SERVICE_NAME : patch.name,
         description: patch.description,
         price: patch.price,
+        ...(isDelivery ? { is_delivery: true } : {}),
       })
       .eq("id", id);
 
     setServices((prev) =>
-      prev.map((row) => (row.id === id ? { ...row, ...patch } : row))
+      prev.map((row) =>
+        row.id === id
+          ? {
+              ...row,
+              name: isDelivery ? DELIVERY_SERVICE_NAME : patch.name,
+              description: patch.description,
+              price: patch.price,
+              ...(isDelivery ? { is_delivery: true } : {}),
+            }
+          : row
+      )
     );
     setEditingId(null);
     onQuoteUpdated?.();
   }
 
   async function handleDelete(service: QuoteService) {
+    if (isDeliveryService(service)) return;
     if (!confirm(`Delete "${service.name || "this service"}"?`)) return;
 
     const supabase = createClient();
@@ -131,13 +159,14 @@ export default function QuoteServicesTab({
 
   async function handleDragEnd(event: DragEndEvent) {
     const { active, over } = event;
-    if (!over || active.id === over.id) return;
+    if (!over || active.id === over.id || !delivery) return;
 
-    const oldIndex = services.findIndex((row) => row.id === active.id);
-    const newIndex = services.findIndex((row) => row.id === over.id);
+    const oldIndex = otherServices.findIndex((row) => row.id === active.id);
+    const newIndex = otherServices.findIndex((row) => row.id === over.id);
     if (oldIndex < 0 || newIndex < 0) return;
 
-    const reordered = arrayMove(services, oldIndex, newIndex);
+    const reorderedOthers = arrayMove(otherServices, oldIndex, newIndex);
+    const reordered = [delivery, ...reorderedOthers];
     setServices(reordered);
     await reorderQuoteServices(reordered.map((row) => row.id));
   }
@@ -185,23 +214,32 @@ export default function QuoteServicesTab({
                 <th className="w-10 py-2.5" />
               </tr>
             </thead>
-            <SortableContext
-              items={services.map((row) => row.id)}
-              strategy={verticalListSortingStrategy}
-            >
-              <tbody>
-                {services.length === 0 ? (
+            <tbody>
+              {delivery && (
+                <QuoteServiceRow
+                  key={delivery.id}
+                  service={delivery}
+                  isDelivery
+                  onSave={handleSave}
+                  onDelete={handleDelete}
+                />
+              )}
+              <SortableContext
+                items={otherServices.map((row) => row.id)}
+                strategy={verticalListSortingStrategy}
+              >
+                {otherServices.length === 0 ? (
                   <tr>
                     <td
                       colSpan={6}
-                      className="py-10 text-center text-sm text-gray-500"
+                      className="py-6 text-center text-sm text-gray-500"
                     >
-                      No services yet. Click &ldquo;+ Add Service&rdquo; to add a
-                      line.
+                      No additional services yet. Click &ldquo;+ Add Service&rdquo;
+                      to add another line.
                     </td>
                   </tr>
                 ) : (
-                  services.map((service) => (
+                  otherServices.map((service) => (
                     <QuoteServiceRow
                       key={service.id}
                       service={service}
@@ -212,8 +250,8 @@ export default function QuoteServicesTab({
                     />
                   ))
                 )}
-              </tbody>
-            </SortableContext>
+              </SortableContext>
+            </tbody>
           </table>
         </DndContext>
       </div>

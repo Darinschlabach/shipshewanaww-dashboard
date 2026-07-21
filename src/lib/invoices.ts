@@ -280,10 +280,55 @@ export function getTopCustomersByBalance(
     .slice(0, limit);
 }
 
+export function isSyntheticInvoiceId(id: string): boolean {
+  return id.startsWith("job-");
+}
+
+export function getSyntheticJobId(id: string): string | null {
+  if (!isSyntheticInvoiceId(id)) return null;
+  const jobId = id.slice(4);
+  return jobId || null;
+}
+
+export function getInvoiceDetailPath(invoice: Pick<InvoiceRow, "id">): string {
+  return `/invoices/${invoice.id}`;
+}
+
 export function isDueDateOverdue(dueDate: string | null): boolean {
   if (!dueDate) return false;
   const due = new Date(`${dueDate}T12:00:00`);
   const today = new Date();
   today.setHours(12, 0, 0, 0);
   return due < today;
+}
+
+export function countByInvoiceStatus(
+  invoices: Invoice[],
+  status: InvoiceStatus
+): number {
+  return invoices.filter((i) => i.status === status).length;
+}
+
+export function sumInvoiceBalanceByStatus(
+  invoices: Invoice[],
+  status: InvoiceStatus
+): number {
+  return invoices
+    .filter((i) => i.status === status)
+    .reduce((sum, i) => sum + Number(i.balance), 0);
+}
+
+export function sumInvoiceAmountByStatus(
+  invoices: Invoice[],
+  status: InvoiceStatus
+): number {
+  return invoices
+    .filter((i) => i.status === status)
+    .reduce((sum, i) => sum + Number(i.amount), 0);
+}
+
+export function invoiceOutstandingTotal(invoices: Invoice[]): number {
+  return invoices
+    .filter((i) => i.status === "open" || i.status === "overdue")
+    .reduce((sum, i) => sum + Number(i.balance), 0);
 }

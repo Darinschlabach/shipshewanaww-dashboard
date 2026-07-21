@@ -5,6 +5,7 @@ import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { IconGripVertical, IconPencil, IconTrash } from "@tabler/icons-react";
 import type { QuoteService } from "@/lib/types";
+import { DELIVERY_SERVICE_NAME } from "@/lib/quote-services";
 import { formatCurrencyFull } from "@/lib/utils";
 
 const inputClass =
@@ -22,6 +23,7 @@ interface QuoteServiceRowProps {
   onDelete: (service: QuoteService) => void;
   startEditing?: boolean;
   onEditingDone?: () => void;
+  isDelivery?: boolean;
 }
 
 function parsePrice(value: string): number {
@@ -37,6 +39,7 @@ export default function QuoteServiceRow({
   onDelete,
   startEditing = false,
   onEditingDone,
+  isDelivery = false,
 }: QuoteServiceRowProps) {
   const nameRef = useRef<HTMLInputElement>(null);
   const descriptionRef = useRef<HTMLInputElement>(null);
@@ -48,7 +51,7 @@ export default function QuoteServiceRow({
     service.price > 0 ? String(service.price) : ""
   );
   const [isEditing, setIsEditing] = useState(
-    startEditing || !service.name.trim()
+    startEditing || (!isDelivery && !service.name.trim())
   );
   const {
     attributes,
@@ -57,7 +60,7 @@ export default function QuoteServiceRow({
     transform,
     transition,
     isDragging,
-  } = useSortable({ id: service.id });
+  } = useSortable({ id: service.id, disabled: isDelivery });
 
   const style = {
     transform: CSS.Transform.toString(transform),
@@ -77,15 +80,20 @@ export default function QuoteServiceRow({
     if (startEditing) {
       setIsEditing(true);
       requestAnimationFrame(() => {
+        if (isDelivery) {
+          priceRef.current?.focus();
+          priceRef.current?.select();
+          return;
+        }
         nameRef.current?.focus();
         nameRef.current?.select();
       });
     }
-  }, [startEditing]);
+  }, [startEditing, isDelivery]);
 
   async function commit() {
     const patch = {
-      name: name.trim(),
+      name: isDelivery ? DELIVERY_SERVICE_NAME : name.trim(),
       description: description.trim() || null,
       price: parsePrice(price),
     };
@@ -113,6 +121,11 @@ export default function QuoteServiceRow({
   function startEdit() {
     setIsEditing(true);
     requestAnimationFrame(() => {
+      if (isDelivery) {
+        priceRef.current?.focus();
+        priceRef.current?.select();
+        return;
+      }
       nameRef.current?.focus();
       nameRef.current?.select();
     });
@@ -125,18 +138,22 @@ export default function QuoteServiceRow({
       className="border-b border-gray-100 hover:bg-gray-50/80"
     >
       <td className="w-8 py-2 pr-1">
-        <button
-          type="button"
-          className="cursor-grab rounded p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-600 active:cursor-grabbing"
-          aria-label="Reorder service"
-          {...attributes}
-          {...listeners}
-        >
-          <IconGripVertical size={16} />
-        </button>
+        {isDelivery ? (
+          <span className="inline-block w-8" aria-hidden="true" />
+        ) : (
+          <button
+            type="button"
+            className="cursor-grab rounded p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-600 active:cursor-grabbing"
+            aria-label="Reorder service"
+            {...attributes}
+            {...listeners}
+          >
+            <IconGripVertical size={16} />
+          </button>
+        )}
       </td>
       <td className="py-2 pr-3">
-        {isEditing ? (
+        {isEditing && !isDelivery ? (
           <input
             ref={nameRef}
             type="text"
@@ -148,7 +165,7 @@ export default function QuoteServiceRow({
           />
         ) : (
           <span className="font-medium text-gray-900">
-            {service.name.trim() || "—"}
+            {isDelivery ? DELIVERY_SERVICE_NAME : service.name.trim() || "—"}
           </span>
         )}
       </td>
@@ -210,20 +227,22 @@ export default function QuoteServiceRow({
               type="button"
               onClick={startEdit}
               className="rounded p-1 text-gray-400 hover:bg-gray-100 hover:text-burgundy"
-              aria-label={`Edit ${service.name || "service"}`}
+              aria-label={`Edit ${isDelivery ? DELIVERY_SERVICE_NAME : service.name || "service"}`}
               title="Edit service"
             >
               <IconPencil size={14} />
             </button>
-            <button
-              type="button"
-              onClick={() => onDelete(service)}
-              className="rounded p-1 text-gray-400 hover:bg-red-50 hover:text-red-600"
-              aria-label={`Remove ${service.name || "service"}`}
-              title="Delete service"
-            >
-              <IconTrash size={14} />
-            </button>
+            {!isDelivery && (
+              <button
+                type="button"
+                onClick={() => onDelete(service)}
+                className="rounded p-1 text-gray-400 hover:bg-red-50 hover:text-red-600"
+                aria-label={`Remove ${service.name || "service"}`}
+                title="Delete service"
+              >
+                <IconTrash size={14} />
+              </button>
+            )}
           </div>
         )}
       </td>

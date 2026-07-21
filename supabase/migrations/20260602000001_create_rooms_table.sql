@@ -5,8 +5,12 @@ CREATE TABLE rooms (
   name TEXT NOT NULL,
   wood_species TEXT,
   door_style TEXT,
-  finish_type TEXT CHECK (finish_type IN ('Painted', 'Stained')),
+  finish_type TEXT,
   finish_color TEXT,
+  overlay TEXT,
+  hardware TEXT,
+  base_molding TEXT,
+  crown_molding TEXT,
   notes TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );

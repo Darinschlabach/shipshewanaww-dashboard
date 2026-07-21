@@ -518,8 +518,6 @@ export default function Sidebar() {
 
           </span>
 
-          <IconChevronDown size={16} className="shrink-0 text-white/70" stroke={2} />
-
         </button>
 
 
@@ -530,7 +528,7 @@ export default function Sidebar() {
 
           onClick={handleSignOut}
 
-          className="mt-0.5 flex w-full items-center gap-2.5 rounded-md px-2 py-2 text-sm text-white/80 transition-colors hover:bg-white/8 hover:text-white"
+          className="mt-0.5 ml-[9px] flex w-full items-center gap-2.5 rounded-md px-2 py-2 text-sm text-white/80 transition-colors hover:bg-white/8 hover:text-white"
 
         >
 

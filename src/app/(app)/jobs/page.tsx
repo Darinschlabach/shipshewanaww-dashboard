@@ -179,10 +179,20 @@ export default function JobsPage() {
     if (!deleteJob) return;
     setDeleting(true);
     const supabase = createClient();
-    await supabase.from("jobs").delete().eq("id", deleteJob.id);
-    setDeleteJob(null);
+
+    await supabase.from("invoices").delete().eq("job_id", deleteJob.id);
+
+    const { error } = await supabase
+      .from("jobs")
+      .delete()
+      .eq("id", deleteJob.id);
+
+    if (!error) {
+      setDeleteJob(null);
+      await load();
+    }
+
     setDeleting(false);
-    await load();
   }
 
   function toggleColumn(key: keyof typeof visibleColumns) {
@@ -220,16 +230,19 @@ export default function JobsPage() {
         />
       </div>
 
-      <div className="mb-4 flex flex-wrap divide-x divide-gray-200 overflow-hidden rounded-lg border border-gray-200 bg-cream">
-        {statItems.map(({ icon: Icon, value, label }) => (
+      <div className="mb-4 flex flex-wrap overflow-hidden rounded-lg border border-gray-200 bg-cream">
+        {statItems.map(({ icon: Icon, value, label }, idx) => (
           <div
             key={label}
-            className="flex min-w-[140px] flex-1 items-center gap-3 px-5 py-4"
+            className={`flex min-w-[150px] flex-1 items-center gap-3 px-5 py-4 ${
+              idx < statItems.length - 1 ? "border-r border-gray-200" : ""
+            }`}
           >
             <Icon size={20} className="shrink-0 text-gray-400" stroke={1.5} />
             <div>
               <p className="text-lg font-semibold text-gray-900">{value}</p>
               <p className="text-xs text-gray-500">{label}</p>
+              <p className="text-xs font-medium text-transparent">.</p>
             </div>
           </div>
         ))}

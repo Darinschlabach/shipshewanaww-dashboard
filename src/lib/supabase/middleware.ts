@@ -39,6 +39,7 @@ export async function updateSession(request: NextRequest) {
   const isPublicRoute =
     pathname === "/login" ||
     pathname === "/forgot-password" ||
+    pathname === "/reset-password" ||
     pathname.startsWith("/auth");
 
   if (!user && !isPublicRoute) {
@@ -51,6 +52,10 @@ export async function updateSession(request: NextRequest) {
     const url = request.nextUrl.clone();
     url.pathname = "/dashboard";
     return NextResponse.redirect(url);
+  }
+
+  if (user && pathname === "/reset-password") {
+    return supabaseResponse;
   }
 
   return supabaseResponse;

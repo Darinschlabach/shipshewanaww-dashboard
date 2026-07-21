@@ -11,6 +11,18 @@ body {
   font-family: var(--font-sans);
 }
 
+/* Hide number input spinners (price, qty, etc.) */
+input[type="number"]::-webkit-outer-spin-button,
+input[type="number"]::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+input[type="number"] {
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+
 /* Google Places suggestions above modals */
 .pac-container {
   z-index: 10000 !important;

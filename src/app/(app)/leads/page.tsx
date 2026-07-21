@@ -413,7 +413,7 @@ export default function LeadsPage() {
               key={opt.value}
               type="button"
               onClick={() => setFilter(opt.value)}
-              className={`rounded-full border px-4 py-1.5 text-sm font-medium transition-colors ${
+              className={`rounded-full border px-4 py-1.5 text-sm transition-colors ${
                 active
                   ? "border-burgundy bg-white text-burgundy"
                   : "border-gray-300 bg-white text-gray-600 hover:border-gray-400"

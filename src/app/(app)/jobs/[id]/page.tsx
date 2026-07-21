@@ -61,7 +61,8 @@ export default function JobDetailPage() {
   const [deleting, setDeleting] = useState(false);
   const [showUnconvert, setShowUnconvert] = useState(false);
   const [unconverting, setUnconverting] = useState(false);
-  const [activeTab, setActiveTab] = useState<JobDetailTab>("Job Specs");
+  const [activeTab, setActiveTab] = useState<JobDetailTab>("Overview");
+  const [purchasingFullScreenMode, setPurchasingFullScreenMode] = useState(false);
   const [editForm, setEditForm] = useState({
     name: "",
     total_value: "",
@@ -125,8 +126,16 @@ export default function JobDetailPage() {
 
     setDeleting(true);
     const supabase = createClient();
-    await supabase.from("jobs").delete().eq("id", id);
-    router.push("/jobs");
+
+    await supabase.from("invoices").delete().eq("job_id", id);
+
+    const { error } = await supabase.from("jobs").delete().eq("id", id);
+
+    setDeleting(false);
+
+    if (!error) {
+      router.push("/jobs");
+    }
   }
 
   async function handleUnconvert() {
@@ -184,6 +193,8 @@ export default function JobDetailPage() {
     activeTab === "Financials" ||
     activeTab === "Files" ||
     activeTab === "Tasks";
+  const hideJobHeaderForPurchasing =
+    activeTab === "Purchasing" && purchasingFullScreenMode;
 
   return (
     <div
@@ -193,76 +204,82 @@ export default function JobDetailPage() {
           : undefined
       }
     >
-      <Link
-        href="/jobs"
-        className={`mb-4 inline-block text-sm text-gray-500 hover:text-burgundy ${
-          isFillHeightTab ? "shrink-0" : ""
-        }`}
-      >
-        ← All jobs
-      </Link>
+      {!hideJobHeaderForPurchasing ? (
+        <Link
+          href="/jobs"
+          className={`mb-4 inline-block text-sm text-gray-500 hover:text-burgundy ${
+            isFillHeightTab ? "shrink-0" : ""
+          }`}
+        >
+          ← All jobs
+        </Link>
+      ) : null}
 
-      <div
-        className={`mb-6 flex items-start justify-between gap-4 ${
-          isFillHeightTab ? "shrink-0" : ""
-        }`}
-      >
-        <div>
-          <h1 className="text-2xl font-semibold text-gray-900">{job.name}</h1>
-          <p className="mt-1 text-sm text-gray-500">
-            {customerName}
-            {job.start_date && ` · Started ${formatDateLong(job.start_date)}`}
-            {` · ${formatCurrencyFull(Number(job.total_value))}`}
-          </p>
-        </div>
-        <div className="flex shrink-0 items-center gap-2">
-          {sourceQuote && (
-            <Button
-              onClick={() => setShowUnconvert(true)}
-              disabled={deleting || unconverting}
-            >
-              Convert back to quote
-            </Button>
-          )}
-          <Button onClick={() => setShowEdit(true)} disabled={deleting || unconverting}>
-            Edit job
-          </Button>
-          <button
-            type="button"
-            onClick={handleDeleteJob}
-            disabled={deleting}
-            className="rounded border border-red-300 bg-white px-3 py-1.5 text-sm text-red-600 hover:border-red-400 hover:bg-red-50 disabled:opacity-50"
-          >
-            {deleting ? "Deleting…" : "Delete job"}
-          </button>
-        </div>
-      </div>
-
-      <div
-        className={`mb-6 flex flex-wrap items-center gap-4 border-b border-gray-200 pb-2 text-sm ${
-          isFillHeightTab ? "shrink-0" : ""
-        }`}
-      >
-        {JOB_DETAIL_TABS.map((tab) => (
-          <button
-            key={tab}
-            type="button"
-            onClick={() => setActiveTab(tab)}
-            className={`inline-flex items-center gap-1 border-b-2 pb-2 ${
-              tab === activeTab
-                ? "border-burgundy font-medium text-burgundy"
-                : "border-transparent text-gray-500 hover:text-gray-700"
-            }`}
-          >
-            {tab}
-            {tab === "Tasks" && (
-              <span className="rounded-full bg-burgundy px-1.5 py-0.5 text-[10px] font-semibold text-white">
-                12
-              </span>
+      {!hideJobHeaderForPurchasing ? (
+        <div
+          className={`mb-6 flex items-start justify-between gap-4 ${
+            isFillHeightTab ? "shrink-0" : ""
+          }`}
+        >
+          <div>
+            <h1 className="text-2xl font-semibold text-gray-900">{job.name}</h1>
+            <p className="mt-1 text-sm text-gray-500">
+              {customerName}
+              {job.start_date && ` · Started ${formatDateLong(job.start_date)}`}
+              {` · ${formatCurrencyFull(Number(job.total_value))}`}
+            </p>
+          </div>
+          <div className="flex shrink-0 items-center gap-2">
+            {sourceQuote && (
+              <Button
+                onClick={() => setShowUnconvert(true)}
+                disabled={deleting || unconverting}
+              >
+                Convert back to quote
+              </Button>
             )}
-          </button>
-        ))}
-      </div>
+            <Button onClick={() => setShowEdit(true)} disabled={deleting || unconverting}>
+              Edit job
+            </Button>
+            <button
+              type="button"
+              onClick={handleDeleteJob}
+              disabled={deleting}
+              className="rounded border border-red-300 bg-white px-3 py-1.5 text-sm text-red-600 hover:border-red-400 hover:bg-red-50 disabled:opacity-50"
+            >
+              {deleting ? "Deleting…" : "Delete job"}
+            </button>
+          </div>
+        </div>
+      ) : null}
+
+      {!hideJobHeaderForPurchasing ? (
+        <div
+          className={`mb-6 flex flex-wrap items-center gap-4 border-b border-gray-200 pb-2 text-sm ${
+            isFillHeightTab ? "shrink-0" : ""
+          }`}
+        >
+          {JOB_DETAIL_TABS.map((tab) => (
+            <button
+              key={tab}
+              type="button"
+              onClick={() => setActiveTab(tab)}
+              className={`inline-flex items-center gap-1 border-b-2 pb-2 ${
+                tab === activeTab
+                  ? "border-burgundy font-medium text-burgundy"
+                  : "border-transparent text-gray-500 hover:text-gray-700"
+              }`}
+            >
+              {tab}
+              {tab === "Tasks" && (
+                <span className="rounded-full bg-burgundy px-1.5 py-0.5 text-[10px] font-semibold text-white">
+                  12
+                </span>
+              )}
+            </button>
+          ))}
+        </div>
+      ) : null}
 
       {activeTab === "Job Specs" ? (
         <RoomsTab jobId={id} />
@@ -274,11 +291,21 @@ export default function JobDetailPage() {
         <div className="min-h-0 flex-1">
           <ProductionTab jobId={id} />
         </div>
-      ) : activeTab === "Purchasing" ? (
-        <div className="min-h-0 flex-1">
-          <PurchasingTab jobId={id} />
-        </div>
-      ) : activeTab === "Schedule" ? (
+      ) : null}
+
+      <div
+        className={`min-h-0 flex-1 ${
+          activeTab === "Purchasing" ? "flex flex-col" : "hidden"
+        }`}
+      >
+        <PurchasingTab
+          jobId={id}
+          isActive={activeTab === "Purchasing"}
+          onFullScreenModeChange={setPurchasingFullScreenMode}
+        />
+      </div>
+
+      {activeTab === "Schedule" ? (
         <div className="min-h-0 flex-1">
           <ScheduleTab jobId={id} />
         </div>
@@ -294,11 +321,7 @@ export default function JobDetailPage() {
         <div className="min-h-0 flex-1">
           <TasksTab jobId={id} />
         </div>
-      ) : activeTab !== "Overview" ? (
-        <div className="rounded-lg border border-dashed border-gray-300 bg-white p-8 text-center text-sm text-gray-500">
-          {activeTab} tab coming soon.
-        </div>
-      ) : (
+      ) : activeTab === "Overview" ? (
         <>
       <div className="mb-4 grid grid-cols-1 gap-4 xl:grid-cols-12">
         <div className="rounded-lg border border-gray-200 bg-white p-4 xl:col-span-3">
@@ -483,7 +506,7 @@ export default function JobDetailPage() {
         </div>
       </div>
         </>
-      )}
+      ) : null}
 
       {showEdit && (
         <Modal title="Edit job" onClose={() => setShowEdit(false)}>

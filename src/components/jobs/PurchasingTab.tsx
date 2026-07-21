@@ -1,222 +1,67 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
-  IconAlertTriangle,
-  IconArrowNarrowRight,
-  IconBox,
   IconChevronLeft,
   IconChevronRight,
-  IconClock,
-  IconCurrencyDollar,
-  IconDots,
+  IconCheckbox,
   IconFilter,
+  IconFlag,
+  IconPencil,
   IconSearch,
   IconShoppingCart,
+  IconTrash,
+  IconTruck,
 } from "@tabler/icons-react";
 import Button from "@/components/Button";
+import PoDetailView, { type PoDetailData } from "@/components/jobs/PoDetailView";
+import { createClient } from "@/lib/supabase/client";
+import {
+  buildJobPurchaseOrderInsert,
+  dbRowToJobPurchaseOrder,
+  isMissingColumnError,
+  nextJobPoNumber,
+  purchaseOrderInsertErrorMessage,
+  type JobPoStatus,
+  type JobPoType,
+  type JobPurchaseOrder,
+} from "@/lib/job-purchase-orders";
+import type { Contact, PurchaseOrder as DbPurchaseOrder } from "@/lib/types";
 
-type PoStatus = "Received" | "Partial" | "Open" | "Overdue";
-type PoFilter = "All Purchase Orders" | "Open" | "Received" | "Partial" | "Closed";
+type PoFilter = "All Purchase Orders" | "Confirmed" | "Delivered" | "Flagged";
+type PurchasingView = "list" | "detail";
 
-interface PurchaseOrder {
-  id: string;
-  po: string;
-  vendor: string;
-  category: string;
-  categoryStyle: string;
-  orderDate: string;
-  expected: string;
-  expectedOverdue?: boolean;
-  total: number;
-  received: number;
-  status: PoStatus;
-}
-
-interface ItemOnOrder {
-  id: string;
-  item: string;
-  vendor: string;
-  po: string;
-  ordered: number;
-  receivedQty: number;
-  unit: string;
-  expected: string;
-  expectedOverdue?: boolean;
-  status: PoStatus;
-}
-
-const VENDORS = [
-  { name: "Carter Lumber", amount: 3245.8 },
-  { name: "WoodPro Hardware", amount: 1287.45 },
-  { name: "Frontier Components", amount: 2156.2 },
-  { name: "Hettich America", amount: 892.11 },
-  { name: "Wilsonart", amount: 1161.0 },
-];
-
-const CATEGORY_BREAKDOWN = [
-  { label: "Lumber & Panels", percent: 44, color: "#ec4899" },
-  { label: "Cabinet Parts", percent: 26, color: "#a855f7" },
-  { label: "Hardware", percent: 14, color: "#3b82f6" },
-  { label: "Finishes & Supplies", percent: 9, color: "#f59e0b" },
-  { label: "Other", percent: 7, color: "#9ca3af" },
-];
-
-const PURCHASE_ORDERS: PurchaseOrder[] = [
-  {
-    id: "7",
-    po: "PO-1007",
-    vendor: "Carter Lumber",
-    category: "Lumber & Panels",
-    categoryStyle: "bg-pink-50 text-pink-700",
-    orderDate: "2024-05-10",
-    expected: "2024-05-20",
-    total: 1842.5,
-    received: 1842.5,
-    status: "Received",
-  },
-  {
-    id: "6",
-    po: "PO-1006",
-    vendor: "WoodPro Hardware",
-    category: "Hardware",
-    categoryStyle: "bg-blue-50 text-blue-700",
-    orderDate: "2024-05-12",
-    expected: "2024-05-22",
-    total: 987.45,
-    received: 620.0,
-    status: "Partial",
-  },
-  {
-    id: "5",
-    po: "PO-1005",
-    vendor: "Frontier Components",
-    category: "Cabinet Parts",
-    categoryStyle: "bg-purple-50 text-purple-700",
-    orderDate: "2024-05-14",
-    expected: "2024-05-24",
-    total: 2156.2,
-    received: 2156.2,
-    status: "Received",
-  },
-  {
-    id: "4",
-    po: "PO-1004",
-    vendor: "Hettich America",
-    category: "Hardware",
-    categoryStyle: "bg-blue-50 text-blue-700",
-    orderDate: "2024-05-15",
-    expected: "2024-05-25",
-    expectedOverdue: true,
-    total: 892.11,
-    received: 0,
-    status: "Overdue",
-  },
-  {
-    id: "3",
-    po: "PO-1003",
-    vendor: "Wilsonart",
-    category: "Finishes & Supplies",
-    categoryStyle: "bg-amber-50 text-amber-700",
-    orderDate: "2024-05-16",
-    expected: "2024-05-28",
-    total: 1161.0,
-    received: 0,
-    status: "Open",
-  },
-  {
-    id: "2",
-    po: "PO-1002",
-    vendor: "Carter Lumber",
-    category: "Lumber & Panels",
-    categoryStyle: "bg-pink-50 text-pink-700",
-    orderDate: "2024-05-08",
-    expected: "2024-05-18",
-    total: 1403.3,
-    received: 1403.3,
-    status: "Received",
-  },
-  {
-    id: "1",
-    po: "PO-1001",
-    vendor: "Frontier Components",
-    category: "Cabinet Parts",
-    categoryStyle: "bg-purple-50 text-purple-700",
-    orderDate: "2024-05-06",
-    expected: "2024-05-20",
-    total: 300.0,
-    received: 0,
-    status: "Open",
-  },
-];
-
-const ITEMS_ON_ORDER: ItemOnOrder[] = [
-  {
-    id: "1",
-    item: '3/4" White Melamine',
-    vendor: "Carter Lumber",
-    po: "PO-1006",
-    ordered: 12,
-    receivedQty: 8,
-    unit: "sheets",
-    expected: "2024-05-22",
-    status: "Partial",
-  },
-  {
-    id: "2",
-    item: "Grass Hinges 110°",
-    vendor: "Hettich America",
-    po: "PO-1004",
-    ordered: 24,
-    receivedQty: 0,
-    unit: "each",
-    expected: "2024-05-25",
-    expectedOverdue: true,
-    status: "Open",
-  },
-  {
-    id: "3",
-    item: '5/8" Maple Plywood',
-    vendor: "Carter Lumber",
-    po: "PO-1002",
-    ordered: 6,
-    receivedQty: 0,
-    unit: "sheets",
-    expected: "2024-05-18",
-    expectedOverdue: true,
-    status: "Overdue",
-  },
-];
-
-const PO_FILTERS: { key: PoFilter; label: string; count?: number }[] = [
+const PO_FILTER_OPTIONS: { key: PoFilter; label: string }[] = [
   { key: "All Purchase Orders", label: "All Purchase Orders" },
-  { key: "Open", label: "Open", count: 3 },
-  { key: "Received", label: "Received", count: 3 },
-  { key: "Partial", label: "Partial", count: 1 },
-  { key: "Closed", label: "Closed", count: 0 },
+  { key: "Confirmed", label: "Confirmed" },
+  { key: "Delivered", label: "Delivered" },
+  { key: "Flagged", label: "Flagged" },
 ];
 
-const STATUS_STYLES: Record<PoStatus, string> = {
+const PO_TYPE_OPTIONS: JobPoType[] = ["Doors", "Drawers", "Plywood", "Hardware"];
+
+function matchesPoFilter(po: JobPurchaseOrder, filter: PoFilter): boolean {
+  switch (filter) {
+    case "All Purchase Orders":
+      return true;
+    case "Confirmed":
+      return true;
+    case "Delivered":
+      return po.status === "Received";
+    case "Flagged":
+      return po.status === "Overdue";
+  }
+}
+
+const STATUS_STYLES: Record<JobPoStatus, string> = {
   Received: "bg-green-50 text-green-700",
   Partial: "bg-amber-50 text-amber-700",
   Open: "bg-blue-50 text-blue-700",
   Overdue: "bg-red-50 text-red-700",
 };
 
-const TOTAL_PO_VALUE = 8742.56;
-const RECEIVED_VALUE = 5482.3;
-const PENDING_VALUE = 3260.26;
-
-function formatMoney(value: number) {
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(value);
-}
-
 function formatDate(iso: string) {
+  if (!iso) return "—";
   return new Date(iso + "T12:00:00").toLocaleDateString("en-US", {
     month: "short",
     day: "numeric",
@@ -224,7 +69,7 @@ function formatDate(iso: string) {
   });
 }
 
-function StatusBadge({ status }: { status: PoStatus }) {
+function StatusBadge({ status }: { status: JobPoStatus }) {
   return (
     <span
       className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-medium ${STATUS_STYLES[status]}`}
@@ -234,97 +79,269 @@ function StatusBadge({ status }: { status: PoStatus }) {
   );
 }
 
-function CategoryDonut() {
-  const radius = 36;
-  const circumference = 2 * Math.PI * radius;
-  let offset = 0;
-
-  return (
-    <div className="flex items-center gap-3">
-      <div className="relative h-24 w-24 shrink-0">
-        <svg viewBox="0 0 100 100" className="h-full w-full -rotate-90">
-          {CATEGORY_BREAKDOWN.map((cat) => {
-            const dash = (cat.percent / 100) * circumference;
-            const segment = (
-              <circle
-                key={cat.label}
-                cx="50"
-                cy="50"
-                r={radius}
-                fill="none"
-                stroke={cat.color}
-                strokeWidth="14"
-                strokeDasharray={`${dash} ${circumference - dash}`}
-                strokeDashoffset={-offset}
-              />
-            );
-            offset += dash;
-            return segment;
-          })}
-        </svg>
-        <div className="absolute inset-0 flex flex-col items-center justify-center text-center">
-          <span className="text-[10px] font-semibold text-gray-900">
-            {formatMoney(TOTAL_PO_VALUE)}
-          </span>
-        </div>
-      </div>
-      <ul className="min-w-0 flex-1 space-y-1 text-[10px]">
-        {CATEGORY_BREAKDOWN.map((cat) => (
-          <li key={cat.label} className="flex items-center justify-between gap-2">
-            <span className="flex min-w-0 items-center gap-1.5 text-gray-600">
-              <span
-                className="h-2 w-2 shrink-0 rounded-full"
-                style={{ backgroundColor: cat.color }}
-              />
-              <span className="truncate">{cat.label}</span>
-            </span>
-            <span className="shrink-0 font-medium text-gray-900">{cat.percent}%</span>
-          </li>
-        ))}
-      </ul>
-    </div>
-  );
-}
-
 interface PurchasingTabProps {
   jobId: string;
+  isActive?: boolean;
+  onFullScreenModeChange?: (enabled: boolean) => void;
 }
 
-export default function PurchasingTab({ jobId: _jobId }: PurchasingTabProps) {
+export default function PurchasingTab({
+  jobId,
+  isActive = true,
+  onFullScreenModeChange,
+}: PurchasingTabProps) {
+  const [view, setView] = useState<PurchasingView>("list");
+  const [activePoId, setActivePoId] = useState<string | null>(null);
+  const [purchaseOrders, setPurchaseOrders] = useState<JobPurchaseOrder[]>([]);
+  const [ordersLoading, setOrdersLoading] = useState(true);
+  const [ordersError, setOrdersError] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
   const [poFilter, setPoFilter] = useState<PoFilter>("All Purchase Orders");
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(1);
+  const [showNewPoModal, setShowNewPoModal] = useState(false);
+  const [creatingPo, setCreatingPo] = useState(false);
+  const [vendorContacts, setVendorContacts] = useState<Contact[]>([]);
+  const [vendorsLoading, setVendorsLoading] = useState(true);
+  const [newPoVendor, setNewPoVendor] = useState("");
+  const [newPoType, setNewPoType] = useState<JobPoType>("Doors");
+  const [newPoTitle, setNewPoTitle] = useState("");
+
+  const loadPurchaseOrders = useCallback(async () => {
+    setOrdersLoading(true);
+    setOrdersError(null);
+    const supabase = createClient();
+    const { data, error } = await supabase
+      .from("purchase_orders")
+      .select("*")
+      .eq("job_id", jobId)
+      .neq("status", "archived")
+      .order("created_at", { ascending: false });
+
+    if (error) {
+      setOrdersError("Could not load purchase orders. Please refresh the page.");
+      setOrdersLoading(false);
+      return;
+    }
+
+    setPurchaseOrders(
+      ((data as DbPurchaseOrder[]) ?? []).map(dbRowToJobPurchaseOrder)
+    );
+    setOrdersLoading(false);
+  }, [jobId]);
+
+  const loadVendorContacts = useCallback(async () => {
+    const supabase = createClient();
+    const { data } = await supabase
+      .from("contacts")
+      .select("*")
+      .eq("contact_type", "Vendors")
+      .order("name");
+    const vendors = (data as Contact[]) ?? [];
+    setVendorContacts(vendors);
+    setVendorsLoading(false);
+    setNewPoVendor((currentVendor) => currentVendor || vendors[0]?.name || "");
+  }, []);
+
+  useEffect(() => {
+    if (!isActive) return;
+
+    void loadPurchaseOrders();
+
+    function handleFocus() {
+      void loadPurchaseOrders();
+    }
+
+    window.addEventListener("focus", handleFocus);
+    return () => window.removeEventListener("focus", handleFocus);
+  }, [isActive, loadPurchaseOrders]);
+
+  useEffect(() => {
+    loadVendorContacts();
+  }, [loadVendorContacts]);
+
+  useEffect(() => {
+    onFullScreenModeChange?.(isActive && view !== "list");
+    return () => onFullScreenModeChange?.(false);
+  }, [isActive, onFullScreenModeChange, view]);
 
   const filteredOrders = useMemo(() => {
-    let list = PURCHASE_ORDERS;
+    let list = purchaseOrders;
     if (poFilter !== "All Purchase Orders") {
-      if (poFilter === "Closed") return [];
-      if (poFilter === "Open") {
-        list = list.filter(
-          (po) => po.status === "Open" || po.status === "Overdue"
-        );
-      } else {
-        list = list.filter((po) => po.status === poFilter);
-      }
+      list = list.filter((po) => matchesPoFilter(po, poFilter));
     }
     if (search.trim()) {
       const q = search.toLowerCase();
       list = list.filter(
         (po) =>
           po.po.toLowerCase().includes(q) ||
+          po.title.toLowerCase().includes(q) ||
           po.vendor.toLowerCase().includes(q) ||
           po.category.toLowerCase().includes(q)
       );
     }
     return list;
-  }, [poFilter, search]);
+  }, [poFilter, purchaseOrders, search]);
 
-  const receivedPercent = Math.round((RECEIVED_VALUE / TOTAL_PO_VALUE) * 100);
-  const pendingPercent = 100 - receivedPercent;
+  const allPoCount = purchaseOrders.length;
+  const confirmedPoCount = purchaseOrders.length;
+  const deliveredPoCount = purchaseOrders.filter(
+    (po) => po.status === "Received"
+  ).length;
+  const flaggedPoCount = purchaseOrders.filter(
+    (po) => po.status === "Overdue"
+  ).length;
+
+  const poFilterCounts: Record<PoFilter, number> = {
+    "All Purchase Orders": allPoCount,
+    Confirmed: confirmedPoCount,
+    Delivered: deliveredPoCount,
+    Flagged: flaggedPoCount,
+  };
+
+  function closeNewPoModal() {
+    setShowNewPoModal(false);
+  }
+
+  function toIsoDate(daysFromToday: number) {
+    const date = new Date();
+    date.setDate(date.getDate() + daysFromToday);
+    return date.toISOString().slice(0, 10);
+  }
+
+  function toPoDetailData(po: JobPurchaseOrder): PoDetailData {
+    return {
+      id: po.id,
+      poNumber: po.po,
+      title: po.title,
+      vendor: po.vendor,
+      lineItems: [],
+      isDraft: po.isDraft ?? false,
+    };
+  }
+
+  const activePo = useMemo(
+    () => purchaseOrders.find((po) => po.id === activePoId) ?? null,
+    [activePoId, purchaseOrders]
+  );
+
+  async function handleCreatePo(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const title = newPoTitle.trim();
+    if (!title || creatingPo) return;
+
+    const today = toIsoDate(0);
+    const expected = toIsoDate(10);
+    setCreatingPo(true);
+    setActionError(null);
+
+    const supabase = createClient();
+    const { data: existing } = await supabase
+      .from("purchase_orders")
+      .select("*")
+      .eq("job_id", jobId);
+
+    const poNumber = nextJobPoNumber((existing as DbPurchaseOrder[]) ?? []);
+    const insertPayload = buildJobPurchaseOrderInsert(jobId, {
+      title,
+      vendor: newPoVendor,
+      poType: newPoType,
+      poNumber,
+      orderDate: today,
+      expectedDelivery: expected,
+    });
+
+    let { data, error } = await supabase
+      .from("purchase_orders")
+      .insert(insertPayload)
+      .select("*")
+      .single();
+
+    if (error && isMissingColumnError(error.message)) {
+      const corePayload = buildJobPurchaseOrderInsert(jobId, {
+        title,
+        vendor: newPoVendor,
+        poType: newPoType,
+        orderDate: today,
+        expectedDelivery: expected,
+      });
+      ({ data, error } = await supabase
+        .from("purchase_orders")
+        .insert(corePayload)
+        .select("*")
+        .single());
+    }
+
+    setCreatingPo(false);
+
+    if (error || !data) {
+      setActionError(
+        purchaseOrderInsertErrorMessage(
+          error?.message ?? "Unknown error creating purchase order."
+        )
+      );
+      return;
+    }
+
+    await loadPurchaseOrders();
+    const created = dbRowToJobPurchaseOrder(data as DbPurchaseOrder);
+    closeNewPoModal();
+    setActivePoId(created.id);
+    setView("detail");
+    setNewPoTitle("");
+    setNewPoType("Doors");
+    setNewPoVendor(vendorContacts[0]?.name ?? "");
+  }
+
+  function handleOpenPo(poId: string) {
+    setActivePoId(poId);
+    setView("detail");
+  }
+
+  function handleBackToList() {
+    setView("list");
+    setActivePoId(null);
+  }
+
+  async function handleDeletePo(poId: string) {
+    setActionError(null);
+    const supabase = createClient();
+    const { error } = await supabase
+      .from("purchase_orders")
+      .delete()
+      .eq("id", poId);
+
+    if (error) {
+      setActionError("Could not delete purchase order. Please try again.");
+      return;
+    }
+
+    await loadPurchaseOrders();
+    if (activePoId === poId) {
+      handleBackToList();
+    }
+  }
+
+  if (view === "detail" && activePo) {
+    return (
+      <PoDetailView
+        po={toPoDetailData(activePo)}
+        vendorContacts={vendorContacts}
+        jobId={jobId}
+        onBack={handleBackToList}
+        onCancel={handleBackToList}
+      />
+    );
+  }
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-2">
-      <div className="grid shrink-0 grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-5">
+      {ordersError || actionError ? (
+        <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
+          {actionError ?? ordersError}
+        </div>
+      ) : null}
+      <div className="grid shrink-0 grid-cols-2 gap-2 sm:grid-cols-2 xl:grid-cols-4">
         <div className="rounded-lg border border-gray-200 bg-white px-3 py-2.5">
           <div className="mb-1 flex items-start justify-between">
             <span className="text-[10px] font-semibold uppercase tracking-wide text-gray-500">
@@ -332,118 +349,52 @@ export default function PurchasingTab({ jobId: _jobId }: PurchasingTabProps) {
             </span>
             <IconShoppingCart size={18} className="text-blue-600" />
           </div>
-          <p className="text-xl font-semibold text-gray-900">7</p>
+          <p className="text-xl font-semibold text-gray-900">{allPoCount}</p>
           <p className="text-[10px] text-gray-500">Total POs</p>
         </div>
 
         <div className="rounded-lg border border-gray-200 bg-white px-3 py-2.5">
           <div className="mb-1 flex items-start justify-between">
             <span className="text-[10px] font-semibold uppercase tracking-wide text-gray-500">
-              Total PO Value
+              Confirmed POs
             </span>
-            <IconCurrencyDollar size={18} className="text-green-600" />
+            <IconCheckbox size={18} className="text-green-600" />
           </div>
           <p className="text-xl font-semibold text-gray-900">
-            {formatMoney(TOTAL_PO_VALUE)}
+            {confirmedPoCount}
           </p>
-          <p className="text-[10px] text-gray-500">Total of all POs</p>
+          <p className="text-[10px] text-gray-500">Total Confirmed POs</p>
         </div>
 
         <div className="rounded-lg border border-gray-200 bg-white px-3 py-2.5">
           <div className="mb-1 flex items-start justify-between">
             <span className="text-[10px] font-semibold uppercase tracking-wide text-gray-500">
-              Received Value
+              Delivered POs
             </span>
-            <IconBox size={18} className="text-purple-600" />
+            <IconTruck size={18} className="text-purple-600" />
           </div>
-          <p className="text-xl font-semibold text-gray-900">
-            {formatMoney(RECEIVED_VALUE)}
-          </p>
-          <p className="text-[10px] text-gray-500">
-            {receivedPercent}% of PO value
-          </p>
+          <p className="text-xl font-semibold text-gray-900">{deliveredPoCount}</p>
+          <p className="text-[10px] text-gray-500">Total Delivered POs</p>
         </div>
 
         <div className="rounded-lg border border-gray-200 bg-white px-3 py-2.5">
           <div className="mb-1 flex items-start justify-between">
             <span className="text-[10px] font-semibold uppercase tracking-wide text-gray-500">
-              Pending Value
+              Flagged POs
             </span>
-            <IconClock size={18} className="text-amber-600" />
+            <IconFlag size={18} className="text-red-600" />
           </div>
-          <p className="text-xl font-semibold text-gray-900">
-            {formatMoney(PENDING_VALUE)}
-          </p>
-          <p className="text-[10px] text-gray-500">
-            {pendingPercent}% of PO value
-          </p>
-        </div>
-
-        <div className="rounded-lg border border-gray-200 bg-white px-3 py-2.5">
-          <div className="mb-1 flex items-start justify-between">
-            <span className="text-[10px] font-semibold uppercase tracking-wide text-gray-500">
-              Overdue Orders
-            </span>
-            <IconAlertTriangle size={18} className="text-red-600" />
-          </div>
-          <p className="text-xl font-semibold text-gray-900">1</p>
+          <p className="text-xl font-semibold text-gray-900">{flaggedPoCount}</p>
           <p className="text-[10px] text-red-600">Needs attention</p>
         </div>
       </div>
 
-      <div className="grid min-h-0 flex-1 grid-cols-1 gap-2 xl:grid-cols-12">
-        <div className="flex min-h-0 flex-col gap-2 xl:col-span-3">
-          <div className="flex min-h-0 flex-1 flex-col rounded-lg border border-gray-200 bg-white">
-            <div className="flex shrink-0 items-center justify-between border-b border-gray-100 px-3 py-2">
-              <h3 className="text-sm font-semibold text-gray-900">Vendors</h3>
-              <Button variant="primary" className="!px-2 !py-0.5 !text-[10px]">
-                + New vendor
-              </Button>
-            </div>
-            <ul className="min-h-0 flex-1 overflow-y-auto px-3 py-1">
-              {VENDORS.map((v) => (
-                <li
-                  key={v.name}
-                  className="flex items-center justify-between border-b border-gray-50 py-1.5 text-xs last:border-0"
-                >
-                  <span className="text-gray-800">{v.name}</span>
-                  <span className="font-medium text-gray-900">
-                    {formatMoney(v.amount)}
-                  </span>
-                </li>
-              ))}
-            </ul>
-            <div className="shrink-0 border-t border-gray-100 px-3 py-1.5">
-              <button
-                type="button"
-                className="inline-flex items-center gap-0.5 text-xs text-burgundy hover:underline"
-              >
-                View all vendors
-                <IconArrowNarrowRight size={14} />
-              </button>
-            </div>
-          </div>
-
-          <div className="shrink-0 rounded-lg border border-gray-200 bg-white px-3 py-2.5">
-            <h3 className="mb-2 text-sm font-semibold text-gray-900">
-              Purchase Categories
-            </h3>
-            <CategoryDonut />
-            <button
-              type="button"
-              className="mt-2 inline-flex items-center gap-0.5 text-xs text-burgundy hover:underline"
-            >
-              View category breakdown
-              <IconArrowNarrowRight size={14} />
-            </button>
-          </div>
-        </div>
-
-        <div className="flex min-h-0 flex-col gap-2 xl:col-span-9">
+      <div className="grid min-h-0 flex-1 grid-cols-1 gap-2">
+        <div className="flex min-h-0 flex-col gap-2">
           <div className="flex min-h-0 flex-1 flex-col rounded-lg border border-gray-200 bg-white">
             <div className="shrink-0 border-b border-gray-100 px-3 py-2">
               <div className="mb-2 flex flex-wrap gap-3 text-xs">
-                {PO_FILTERS.map(({ key, label, count }) => {
+                {PO_FILTER_OPTIONS.map(({ key, label }) => {
                   const active = poFilter === key;
                   return (
                     <button
@@ -459,8 +410,7 @@ export default function PurchasingTab({ jobId: _jobId }: PurchasingTabProps) {
                           : "text-gray-500 hover:text-gray-700"
                       }`}
                     >
-                      {label}
-                      {count !== undefined ? ` (${count})` : ""}
+                      {label} ({poFilterCounts[key]})
                     </button>
                   );
                 })}
@@ -490,7 +440,11 @@ export default function PurchasingTab({ jobId: _jobId }: PurchasingTabProps) {
                     <IconFilter size={14} />
                     Filter
                   </button>
-                  <Button variant="primary" className="!px-2.5 !py-1 !text-xs">
+                  <Button
+                    variant="primary"
+                    className="!px-2.5 !py-1 !text-xs"
+                    onClick={() => setShowNewPoModal(true)}
+                  >
                     + New PO
                   </Button>
                 </div>
@@ -505,18 +459,30 @@ export default function PurchasingTab({ jobId: _jobId }: PurchasingTabProps) {
                     <th className="px-3 py-2 font-medium">Vendor</th>
                     <th className="px-3 py-2 font-medium">Category</th>
                     <th className="px-3 py-2 font-medium">Order Date</th>
-                    <th className="px-3 py-2 font-medium">Expected</th>
-                    <th className="px-3 py-2 font-medium">Total</th>
-                    <th className="px-3 py-2 font-medium">Received</th>
+                    <th className="px-3 py-2 font-medium">Delivery</th>
                     <th className="px-3 py-2 font-medium">Status</th>
                     <th className="w-8 px-3 py-2" />
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredOrders.map((po) => (
+                  {ordersLoading ? (
+                    <tr>
+                      <td colSpan={7} className="px-3 py-6 text-center text-xs text-gray-500">
+                        Loading purchase orders…
+                      </td>
+                    </tr>
+                  ) : filteredOrders.length === 0 ? (
+                    <tr>
+                      <td colSpan={7} className="px-3 py-6 text-center text-xs text-gray-500">
+                        No purchase orders yet.
+                      </td>
+                    </tr>
+                  ) : (
+                    filteredOrders.map((po) => (
                     <tr
                       key={po.id}
-                      className="border-b border-gray-100 last:border-0 hover:bg-gray-50/80"
+                      className="group border-b border-gray-100 last:border-0 hover:bg-gray-50/80"
+                      onClick={() => handleOpenPo(po.id)}
                     >
                       <td className="px-3 py-1.5 font-medium text-gray-900">
                         {po.po}
@@ -541,26 +507,38 @@ export default function PurchasingTab({ jobId: _jobId }: PurchasingTabProps) {
                       >
                         {formatDate(po.expected)}
                       </td>
-                      <td className="px-3 py-1.5 font-medium text-gray-900">
-                        {formatMoney(po.total)}
-                      </td>
-                      <td className="px-3 py-1.5 text-gray-700">
-                        {formatMoney(po.received)}
-                      </td>
                       <td className="px-3 py-1.5">
                         <StatusBadge status={po.status} />
                       </td>
                       <td className="px-3 py-1.5">
-                        <button
-                          type="button"
-                          className="rounded p-0.5 text-gray-400 hover:bg-gray-100 hover:text-gray-600"
-                          aria-label={`Actions for ${po.po}`}
-                        >
-                          <IconDots size={16} />
-                        </button>
+                        <div className="flex items-center justify-end gap-1 opacity-0 transition-opacity group-hover:opacity-100">
+                          <button
+                            type="button"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              handleOpenPo(po.id);
+                            }}
+                            className="rounded p-1 text-gray-500 hover:bg-gray-100 hover:text-burgundy"
+                            aria-label={`Open ${po.po}`}
+                          >
+                            <IconPencil size={16} />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              void handleDeletePo(po.id);
+                            }}
+                            className="rounded p-1 text-gray-500 hover:bg-gray-100 hover:text-red-600"
+                            aria-label={`Delete ${po.po}`}
+                          >
+                            <IconTrash size={16} />
+                          </button>
+                        </div>
                       </td>
                     </tr>
-                  ))}
+                    ))
+                  )}
                 </tbody>
               </table>
             </div>
@@ -594,79 +572,89 @@ export default function PurchasingTab({ jobId: _jobId }: PurchasingTabProps) {
               </div>
             </div>
           </div>
-
-          <div className="flex shrink-0 flex-col rounded-lg border border-gray-200 bg-white">
-            <div className="border-b border-gray-100 px-3 py-2">
-              <h3 className="text-sm font-semibold text-gray-900">
-                Items on Order ({ITEMS_ON_ORDER.length})
-              </h3>
-            </div>
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[640px] text-left text-xs">
-                <thead>
-                  <tr className="border-b border-gray-100 bg-gray-50 text-[10px] uppercase text-gray-500">
-                    <th className="px-3 py-1.5 font-medium">Item</th>
-                    <th className="px-3 py-1.5 font-medium">Vendor</th>
-                    <th className="px-3 py-1.5 font-medium">PO #</th>
-                    <th className="px-3 py-1.5 font-medium">Ordered</th>
-                    <th className="px-3 py-1.5 font-medium">Received</th>
-                    <th className="px-3 py-1.5 font-medium">Unit</th>
-                    <th className="px-3 py-1.5 font-medium">Expected</th>
-                    <th className="px-3 py-1.5 font-medium">Status</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {ITEMS_ON_ORDER.map((item) => (
-                    <tr
-                      key={item.id}
-                      className="border-b border-gray-50 last:border-0"
-                    >
-                      <td className="px-3 py-1.5 font-medium text-gray-900">
-                        {item.item}
-                      </td>
-                      <td className="px-3 py-1.5 text-gray-700">{item.vendor}</td>
-                      <td className="px-3 py-1.5 text-gray-700">{item.po}</td>
-                      <td className="px-3 py-1.5 text-gray-700">{item.ordered}</td>
-                      <td className="px-3 py-1.5 text-gray-700">
-                        {item.receivedQty}
-                      </td>
-                      <td className="px-3 py-1.5 text-gray-600">{item.unit}</td>
-                      <td
-                        className={`px-3 py-1.5 whitespace-nowrap ${
-                          item.expectedOverdue
-                            ? "font-medium text-red-600"
-                            : "text-gray-600"
-                        }`}
-                      >
-                        {formatDate(item.expected)}
-                      </td>
-                      <td className="px-3 py-1.5">
-                        <StatusBadge status={item.status} />
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-            <div className="flex flex-wrap items-center justify-between gap-2 border-t border-gray-100 px-3 py-2">
-              <button
-                type="button"
-                className="inline-flex items-center gap-0.5 text-xs text-burgundy hover:underline"
-              >
-                View all items on order
-                <IconArrowNarrowRight size={14} />
-              </button>
-              <button
-                type="button"
-                className="inline-flex items-center gap-0.5 text-xs font-medium text-burgundy hover:underline"
-              >
-                Receive items
-                <IconArrowNarrowRight size={14} />
-              </button>
-            </div>
-          </div>
         </div>
       </div>
+
+      {showNewPoModal ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-md rounded-lg bg-white shadow-xl">
+            <div className="border-b border-gray-100 px-4 py-3">
+              <h3 className="text-base font-semibold text-gray-900">New Purchase Order</h3>
+            </div>
+            <form onSubmit={handleCreatePo} className="space-y-3 px-4 py-4">
+              <div className="space-y-1">
+                <label htmlFor="new-po-title" className="text-xs font-medium text-gray-700">
+                  PO Title
+                </label>
+                <input
+                  id="new-po-title"
+                  type="text"
+                  value={newPoTitle}
+                  onChange={(e) => setNewPoTitle(e.target.value)}
+                  placeholder="Enter PO title..."
+                  required
+                  className="w-full rounded border border-gray-200 px-2.5 py-2 text-sm text-gray-900 focus:border-burgundy focus:outline-none focus:ring-1 focus:ring-burgundy"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label htmlFor="new-po-vendor" className="text-xs font-medium text-gray-700">
+                  Vendor
+                </label>
+                <select
+                  id="new-po-vendor"
+                  value={newPoVendor}
+                  onChange={(e) => setNewPoVendor(e.target.value)}
+                  disabled={vendorsLoading || vendorContacts.length === 0}
+                  className="w-full rounded border border-gray-200 px-2.5 py-2 text-sm text-gray-900 focus:border-burgundy focus:outline-none focus:ring-1 focus:ring-burgundy"
+                >
+                  {vendorContacts.map((vendor) => (
+                    <option key={vendor.id} value={vendor.name}>
+                      {vendor.name}
+                    </option>
+                  ))}
+                </select>
+                {!vendorsLoading && vendorContacts.length === 0 ? (
+                  <p className="text-xs text-gray-500">
+                    No vendor contacts found. Add contacts with type `Vendors`.
+                  </p>
+                ) : null}
+              </div>
+
+              <div className="space-y-1">
+                <label htmlFor="new-po-type" className="text-xs font-medium text-gray-700">
+                  PO Type
+                </label>
+                <select
+                  id="new-po-type"
+                  value={newPoType}
+                  onChange={(e) => setNewPoType(e.target.value as JobPoType)}
+                  className="w-full rounded border border-gray-200 px-2.5 py-2 text-sm text-gray-900 focus:border-burgundy focus:outline-none focus:ring-1 focus:ring-burgundy"
+                >
+                  {PO_TYPE_OPTIONS.map((type) => (
+                    <option key={type} value={type}>
+                      {type}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="flex justify-end gap-2 pt-2">
+                <Button type="button" onClick={closeNewPoModal}>
+                  Cancel
+                </Button>
+                <Button
+                  type="submit"
+                  variant="primary"
+                  disabled={vendorsLoading || vendorContacts.length === 0 || creatingPo}
+                >
+                  {creatingPo ? "Creating…" : "Create PO"}
+                </Button>
+              </div>
+            </form>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
