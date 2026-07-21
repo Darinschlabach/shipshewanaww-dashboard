@@ -215,8 +215,8 @@ export default function InvoicesPage() {
     let jobId: string | null = null;
     let customerId: string | null = null;
     let customerName = "Unknown Customer";
-    let amount = 0;
-    let dueDate: string | null = null;
+    const amount = 0;
+    const dueDate: string | null = null;
 
     if (invoiceType === "job") {
       const job = jobs.find((j) => j.id === form.job_id);
