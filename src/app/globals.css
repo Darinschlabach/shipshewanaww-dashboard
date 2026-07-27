@@ -28,6 +28,16 @@ input[type="number"] {
   z-index: 10000 !important;
 }
 
+/* Hide scrollbars while keeping overflow clipped */
+.scrollbar-none {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.scrollbar-none::-webkit-scrollbar {
+  display: none;
+}
+
 /* Contact map info window (click markers) */
 .gm-style-iw-ch {
   padding: 8px 10px !important;

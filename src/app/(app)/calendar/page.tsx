@@ -1,113 +1,420 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import {
+  IconCalendar,
   IconChevronDown,
   IconChevronLeft,
   IconChevronRight,
-  IconSettings,
+  IconFilter,
+  IconHome,
+  IconPaperclip,
+  IconPlus,
+  IconRepeat,
+  IconTrash,
+  IconTruck,
+  IconUser,
 } from "@tabler/icons-react";
 import { createClient } from "@/lib/supabase/client";
-import PageHeader from "@/components/PageHeader";
 import Modal from "@/components/Modal";
 import Button from "@/components/Button";
+import AddressAutocomplete from "@/components/AddressAutocomplete";
+import MiniCalendar from "@/components/calendar/MiniCalendar";
 import {
-  CALENDAR_CATEGORIES,
-  CALENDAR_LEGEND,
   WEEK_HOURS,
   addDays,
   enrichCalendarEvent,
-  eventMatchesFilters,
   filterByCalendarTab,
   formatDateKey,
+  formatFullDate,
   formatHourLabel,
+  formatMinutesLabel,
   formatTimeRange,
-  formatWeekRange,
-  getBusyDaysThisMonth,
   getCategoryStyles,
+  getCurrentTimePercent,
   getEventHeightPercent,
   getEventTopPercent,
-  getUpcomingByDate,
   startOfWeek,
-  type CalendarCategory,
   type EnrichedCalendarEvent,
 } from "@/lib/calendar";
 import type { CalendarEvent, CalendarEventType } from "@/lib/types";
 
-type CalendarTab = "overview" | "production" | "personal";
-type ViewMode = "week" | "month" | "list";
+type ViewMode = "day" | "week" | "month";
+type CalendarScope = "production" | "personal";
+
+/** Set to true when ready to show Day/Week/Month + Add/Filter controls again. */
+const SHOW_CALENDAR_CHROME = false;
 
 const DAY_HEADERS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
-const defaultFilters = Object.fromEntries(
-  CALENDAR_CATEGORIES.map((c) => [c.id, true])
-) as Record<CalendarCategory, boolean>;
+/** Native Windows selects draw an extra separator next to the chevron; this removes it. */
+const SELECT_CLASS =
+  "appearance-none rounded-md border border-gray-300 bg-white pr-8 text-sm";
+
+function SelectChevron() {
+  return (
+    <IconChevronDown
+      size={16}
+      className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-gray-500"
+      aria-hidden
+    />
+  );
+}
+
+const TIME_OPTIONS = Array.from({ length: 48 }, (_, i) => {
+  const minutes = i * 30;
+  const h = Math.floor(minutes / 60);
+  const m = minutes % 60;
+  const value = `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+  const period = h >= 12 ? "PM" : "AM";
+  const hour12 = h % 12 || 12;
+  const label =
+    m === 0
+      ? `${hour12}:00 ${period}`
+      : `${hour12}:${String(m).padStart(2, "0")} ${period}`;
+  return { value, label };
+});
+
+function toTimeInputValue(time: string | null | undefined): string {
+  if (!time) return "09:00";
+  return time.slice(0, 5);
+}
+
+function defaultEventForm(
+  dateKey = formatDateKey(new Date()),
+  scope: CalendarScope = "production"
+) {
+  return {
+    title: "",
+    event_type: (scope === "personal"
+      ? "personal"
+      : "production") as CalendarEventType,
+    event_date: dateKey,
+    end_date: dateKey,
+    start_time: "09:00",
+    end_time: "10:00",
+    job_id: "",
+    is_all_day: false,
+    location: "",
+    description: "",
+  };
+}
+
+function eventIcon(category: EnrichedCalendarEvent["category"]) {
+  switch (category) {
+    case "deliveries":
+      return IconTruck;
+    case "installations":
+      return IconHome;
+    case "personal":
+      return IconUser;
+    default:
+      return IconCalendar;
+  }
+}
 
 function EventBlock({
   event,
+  selected,
+  onSelect,
   compact,
 }: {
   event: EnrichedCalendarEvent;
+  selected?: boolean;
+  onSelect: () => void;
   compact?: boolean;
 }) {
   const styles = getCategoryStyles(event.category);
-  const content = (
-    <>
+  const Icon = eventIcon(event.category);
+
+  return (
+    <button
+      type="button"
+      onClick={onSelect}
+      className={`block w-full rounded-md border-l-4 px-2 py-1.5 text-left transition-shadow ${styles.bg} ${styles.border} ${
+        selected ? "ring-2 ring-burgundy ring-offset-1" : "hover:opacity-90"
+      } ${compact ? "truncate" : ""}`}
+    >
       {!event.isAllDay && (
         <p className={`text-[10px] font-medium ${styles.text}`}>
           {formatTimeRange(event.startMinutes, event.endMinutes)}
         </p>
       )}
       <p className={`text-xs font-semibold ${styles.text}`}>{event.taskName}</p>
+      {!compact && event.clientName !== "—" && (
+        <p className={`text-[10px] ${styles.text} opacity-80`}>
+          {event.clientName}
+        </p>
+      )}
       {!compact && (
-        <>
-          <p className={`text-[10px] ${styles.text} opacity-80`}>
-            {event.clientName}
-          </p>
-          {event.jobNumber && (
-            <p className={`text-[10px] ${styles.text} opacity-70`}>
-              ({event.jobNumber})
+        <Icon size={14} className={`mt-0.5 ${styles.text} opacity-60`} />
+      )}
+    </button>
+  );
+}
+
+function AddEventButton({ onClick }: { onClick: () => void }) {
+  return (
+    <Button
+      type="button"
+      variant="primary"
+      className="inline-flex items-center gap-1.5"
+      onClick={onClick}
+    >
+      Add
+      <IconPlus size={16} />
+    </Button>
+  );
+}
+
+function DatePreviewModal({
+  date,
+  events,
+  selectedEventId,
+  onSelectEvent,
+  onAdd,
+  onClose,
+}: {
+  date: Date;
+  events: EnrichedCalendarEvent[];
+  selectedEventId: string | null;
+  onSelectEvent: (id: string) => void;
+  onAdd: () => void;
+  onClose: () => void;
+}) {
+  const todayKey = formatDateKey(new Date());
+  const dateKey = formatDateKey(date);
+  const isToday = dateKey === todayKey;
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+      onClick={onClose}
+    >
+      <div
+        className="max-h-[90vh] w-full max-w-xl overflow-y-auto rounded-lg bg-white shadow-xl"
+        onClick={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-labelledby="date-preview-title"
+      >
+        <div className="flex items-start justify-between border-b border-gray-200 px-6 py-5">
+          <div className="flex items-center gap-5">
+            <div
+              className={`flex h-24 w-24 shrink-0 flex-col items-center justify-center rounded-xl ${
+                isToday ? "bg-burgundy text-white" : "bg-burgundy/10 text-burgundy"
+              }`}
+            >
+              <span className="text-sm font-medium uppercase tracking-wide">
+                {date.toLocaleDateString("en-US", { weekday: "short" })}
+              </span>
+              <span className="text-4xl font-bold leading-none">
+                {date.getDate()}
+              </span>
+            </div>
+            <div>
+              <h2
+                id="date-preview-title"
+                className="text-2xl font-semibold text-gray-900"
+              >
+                {formatFullDate(date)}
+              </h2>
+              <p className="mt-1 text-sm text-gray-500">
+                {events.length === 0
+                  ? "No events scheduled"
+                  : `${events.length} event${events.length === 1 ? "" : "s"}`}
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="text-gray-400 hover:text-gray-600"
+            aria-label="Close"
+          >
+            ✕
+          </button>
+        </div>
+
+        <div className="px-6 pb-8 pt-4">
+          {events.length > 0 ? (
+            <div className="mb-6 space-y-2">
+              {events.map((ev) => (
+                <EventBlock
+                  key={ev.id}
+                  event={ev}
+                  selected={selectedEventId === ev.id}
+                  onSelect={() => {
+                    onSelectEvent(ev.id);
+                    onClose();
+                  }}
+                />
+              ))}
+            </div>
+          ) : (
+            <p className="mb-6 text-sm text-gray-500">
+              Nothing scheduled for this date.
             </p>
           )}
-        </>
-      )}
-    </>
+          <div className="flex justify-end">
+            <AddEventButton onClick={onAdd} />
+          </div>
+        </div>
+      </div>
+    </div>
   );
+}
 
-  const className = `block rounded-md border-l-4 px-2 py-1.5 ${styles.bg} ${styles.border} ${
-    compact ? "truncate" : ""
-  }`;
+function EventDetailPanel({
+  event,
+  onEdit,
+  onDelete,
+}: {
+  event: EnrichedCalendarEvent | null;
+  onEdit: () => void;
+  onDelete: () => void;
+}) {
+  const [notes, setNotes] = useState("");
 
-  if (event.job_id) {
+  useEffect(() => {
+    setNotes("");
+  }, [event?.id]);
+
+  if (!event) {
     return (
-      <Link href={`/jobs/${event.job_id}`} className={`${className} hover:opacity-90`}>
-        {content}
-      </Link>
+      <aside className="flex h-full min-h-0 flex-col rounded-lg border border-gray-200 bg-white p-5">
+        <p className="text-sm text-gray-500">Select an event to view details.</p>
+      </aside>
     );
   }
 
-  return <div className={className}>{content}</div>;
+  const styles = getCategoryStyles(event.category);
+  const Icon = eventIcon(event.category);
+  const displayTitle =
+    event.clientName !== "—" ? event.clientName : event.taskName;
+
+  return (
+    <aside className="flex h-full min-h-0 flex-col rounded-lg border border-gray-200 bg-white">
+      <div className="flex-1 overflow-y-auto p-5">
+        <div className="mb-4 flex items-start gap-3">
+          <div
+            className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg ${styles.bg}`}
+          >
+            <Icon size={20} className={styles.text} />
+          </div>
+          <div className="min-w-0">
+            <h3 className="text-lg font-semibold text-gray-900">{displayTitle}</h3>
+            <p className="text-sm text-gray-500">{event.taskName}</p>
+          </div>
+        </div>
+
+        <dl className="space-y-3 text-sm">
+          <div>
+            <dt className="text-xs font-medium uppercase tracking-wide text-gray-400">
+              Date & Time
+            </dt>
+            <dd className="mt-0.5 text-gray-900">
+              {new Date(`${event.event_date}T12:00:00`).toLocaleDateString(
+                "en-US",
+                { weekday: "long", month: "long", day: "numeric" }
+              )}
+              {!event.isAllDay && (
+                <span className="block text-gray-600">
+                  {formatTimeRange(event.startMinutes, event.endMinutes)}
+                </span>
+              )}
+            </dd>
+          </div>
+
+          {event.jobNumber && (
+            <div>
+              <dt className="text-xs font-medium uppercase tracking-wide text-gray-400">
+                Job
+              </dt>
+              <dd className="mt-0.5">
+                {event.job_id ? (
+                  <Link
+                    href={`/jobs/${event.job_id}`}
+                    className="font-medium text-burgundy hover:underline"
+                  >
+                    {event.jobNumber}
+                  </Link>
+                ) : (
+                  <span className="text-gray-900">{event.jobNumber}</span>
+                )}
+              </dd>
+            </div>
+          )}
+
+        </dl>
+
+        <div className="mt-5">
+          <label className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-gray-400">
+            Notes
+          </label>
+          <textarea
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+            rows={3}
+            placeholder="Add notes..."
+            className="w-full rounded-md border border-gray-200 px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 focus:border-burgundy focus:outline-none focus:ring-1 focus:ring-burgundy"
+          />
+        </div>
+      </div>
+
+      <div className="flex items-center gap-2 border-t border-gray-100 p-4">
+        <button
+          type="button"
+          onClick={onEdit}
+          className="flex-1 rounded-md bg-burgundy px-4 py-2 text-sm font-medium text-white hover:bg-burgundy/90"
+        >
+          Edit Event
+        </button>
+        <button
+          type="button"
+          onClick={onDelete}
+          className="rounded-md border border-red-200 p-2 text-red-600 hover:bg-red-50"
+          aria-label="Delete event"
+        >
+          <IconTrash size={18} />
+        </button>
+      </div>
+    </aside>
+  );
 }
 
 export default function CalendarPage() {
-  const [weekStart, setWeekStart] = useState(() => startOfWeek(new Date()));
-  const [calendarTab, setCalendarTab] = useState<CalendarTab>("overview");
-  const [viewMode, setViewMode] = useState<ViewMode>("week");
-  const [filters, setFilters] =
-    useState<Record<CalendarCategory, boolean>>(defaultFilters);
+  const [focusDate, setFocusDate] = useState(() => new Date());
+  const [viewMode, setViewMode] = useState<ViewMode>("month");
+  const [calendarScope, setCalendarScope] =
+    useState<CalendarScope>("production");
+  const [firstName, setFirstName] = useState("My");
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [events, setEvents] = useState<EnrichedCalendarEvent[]>([]);
   const [loading, setLoading] = useState(true);
+  const [selectedEventId, setSelectedEventId] = useState<string | null>(null);
+  const [now, setNow] = useState(() => new Date());
   const [showModal, setShowModal] = useState(false);
-  const [form, setForm] = useState({
-    title: "",
-    event_type: "production" as CalendarEventType,
-    event_date: formatDateKey(new Date()),
-    job_id: "",
-    is_all_day: false,
-  });
+  const [previewDate, setPreviewDate] = useState<Date | null>(null);
+  const [editingEvent, setEditingEvent] = useState<EnrichedCalendarEvent | null>(
+    null
+  );
+  const [form, setForm] = useState(defaultEventForm);
+  const [attachedFile, setAttachedFile] = useState<File | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const monthDate = weekStart;
+  function resetAttachment() {
+    setAttachedFile(null);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = "";
+    }
+  }
+
+  const weekStart = useMemo(() => startOfWeek(focusDate), [focusDate]);
+  const todayKey = formatDateKey(new Date());
+  const focusKey = formatDateKey(focusDate);
 
   const load = useCallback(async () => {
     const supabase = createClient();
@@ -132,71 +439,254 @@ export default function CalendarPage() {
     load();
   }, [load]);
 
-  const tabbed = useMemo(
-    () => filterByCalendarTab(events, calendarTab),
-    [events, calendarTab]
-  );
+  useEffect(() => {
+    const supabase = createClient();
+    void (async () => {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (!user) return;
 
-  const visible = useMemo(
-    () => tabbed.filter((e) => eventMatchesFilters(e, filters)),
-    [tabbed, filters]
-  );
+      setCurrentUserId(user.id);
+
+      const { data: profile } = await supabase
+        .from("profiles")
+        .select("full_name")
+        .eq("id", user.id)
+        .maybeSingle();
+
+      const fullName =
+        profile?.full_name?.trim() ||
+        (user.user_metadata?.full_name as string | undefined)?.trim() ||
+        user.email?.split("@")[0] ||
+        "My";
+      setFirstName(fullName.split(/\s+/)[0] || "My");
+    })();
+  }, []);
+
+  useEffect(() => {
+    const timer = setInterval(() => setNow(new Date()), 60_000);
+    return () => clearInterval(timer);
+  }, []);
 
   const weekDays = useMemo(
     () => Array.from({ length: 7 }, (_, i) => addDays(weekStart, i)),
     [weekStart]
   );
 
+  const visibleEvents = useMemo(
+    () => filterByCalendarTab(events, calendarScope, currentUserId),
+    [events, calendarScope, currentUserId]
+  );
+
   const eventsByDay = useMemo(() => {
     const map = new Map<string, EnrichedCalendarEvent[]>();
-    for (const day of weekDays) {
-      map.set(formatDateKey(day), []);
+    for (const event of visibleEvents) {
+      if (!map.has(event.event_date)) map.set(event.event_date, []);
+      map.get(event.event_date)!.push(event);
     }
-    for (const event of visible) {
-      const list = map.get(event.event_date);
-      if (list) list.push(event);
+    for (const list of map.values()) {
+      list.sort((a, b) => a.startMinutes - b.startMinutes);
     }
     return map;
-  }, [visible, weekDays]);
+  }, [visibleEvents]);
 
-  const upcoming = useMemo(
-    () => getUpcomingByDate(visible, new Date(), 7),
-    [visible]
+  const dayEvents = useMemo(
+    () => eventsByDay.get(focusKey) ?? [],
+    [eventsByDay, focusKey]
   );
 
-  const busyDays = useMemo(
-    () => getBusyDaysThisMonth(tabbed, monthDate),
-    [tabbed, monthDate]
-  );
+  useEffect(() => {
+    setSelectedEventId((current) => {
+      if (dayEvents.length === 0) return null;
+      if (current && dayEvents.some((e) => e.id === current)) return current;
+      return dayEvents[0].id;
+    });
+  }, [focusKey, dayEvents]);
 
-  const todayKey = formatDateKey(new Date());
+  const selectedEvent =
+    visibleEvents.find((e) => e.id === selectedEventId) ?? null;
 
-  function goToday() {
-    setWeekStart(startOfWeek(new Date()));
+  const currentTimePercent =
+    focusKey === todayKey ? getCurrentTimePercent(now) : null;
+
+  function shiftDate(delta: number) {
+    if (viewMode === "month") {
+      setFocusDate((prev) => {
+        const d = new Date(prev);
+        d.setMonth(d.getMonth() + delta);
+        return d;
+      });
+      return;
+    }
+    const step = viewMode === "week" ? 7 : 1;
+    setFocusDate((prev) => addDays(prev, delta * step));
   }
 
-  function shiftWeek(delta: number) {
-    setWeekStart((prev) => addDays(prev, delta * 7));
+  function shiftMonth(delta: number) {
+    setFocusDate((prev) => {
+      const d = new Date(prev);
+      d.setMonth(d.getMonth() + delta);
+      return d;
+    });
   }
 
-  function toggleFilter(category: CalendarCategory) {
-    setFilters((prev) => ({ ...prev, [category]: !prev[category] }));
+  function openDatePreview(date: Date) {
+    setFocusDate(date);
+    setPreviewDate(date);
   }
 
-  async function handleCreate(e: React.FormEvent) {
+  function openCreateModal(forDate?: Date) {
+    if (forDate) {
+      setFocusDate(forDate);
+    }
+    const dateKey = forDate ? formatDateKey(forDate) : focusKey;
+    setEditingEvent(null);
+    setForm(defaultEventForm(dateKey, calendarScope));
+    resetAttachment();
+    setSaveError(null);
+    setPreviewDate(null);
+    setShowModal(true);
+  }
+
+  function openEditModal() {
+    if (!selectedEvent) return;
+    resetAttachment();
+    setSaveError(null);
+    setEditingEvent(selectedEvent);
+    setForm({
+      title: selectedEvent.title,
+      event_type: selectedEvent.event_type,
+      event_date: selectedEvent.event_date,
+      end_date: selectedEvent.event_date,
+      start_time: toTimeInputValue(selectedEvent.start_time),
+      end_time: toTimeInputValue(selectedEvent.end_time),
+      job_id: selectedEvent.job_id ?? "",
+      is_all_day: selectedEvent.is_all_day ?? false,
+      location: selectedEvent.location ?? "",
+      description: selectedEvent.description ?? "",
+    });
+    setShowModal(true);
+  }
+
+  function updateEventDate(dateKey: string) {
+    setForm((prev) => ({
+      ...prev,
+      event_date: dateKey,
+      end_date: prev.end_date === prev.event_date ? dateKey : prev.end_date,
+    }));
+  }
+
+  async function handleSave(e: React.FormEvent) {
     e.preventDefault();
+    if (!form.title.trim()) {
+      setSaveError("Title is required.");
+      return;
+    }
+
+    setSaving(true);
+    setSaveError(null);
     const supabase = createClient();
-    await supabase.from("calendar_events").insert({
-      title: form.title,
+
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (!user) {
+      setSaving(false);
+      setSaveError("You must be signed in to save events.");
+      return;
+    }
+
+    const payload: Record<string, unknown> = {
+      title: form.title.trim(),
       event_type: form.event_type,
       event_date: form.event_date,
       job_id: form.job_id || null,
       is_all_day: form.is_all_day,
+      start_time: form.is_all_day ? null : form.start_time,
+      end_time: form.is_all_day ? null : form.end_time,
+      location: form.location.trim() || null,
+      description: form.description.trim() || null,
+      user_id: editingEvent?.user_id ?? user.id,
+      calendar_scope: editingEvent?.calendar_scope ?? calendarScope,
+    };
+
+    async function persist(nextPayload: Record<string, unknown>) {
+      if (editingEvent) {
+        return supabase
+          .from("calendar_events")
+          .update(nextPayload)
+          .eq("id", editingEvent.id)
+          .select("*, jobs(id, name, created_at, contacts(name))")
+          .single();
+      }
+      return supabase
+        .from("calendar_events")
+        .insert(nextPayload)
+        .select("*, jobs(id, name, created_at, contacts(name))")
+        .single();
+    }
+
+    const optionalFields = [
+      "description",
+      "location",
+      "calendar_scope",
+      "user_id",
+      "end_time",
+      "start_time",
+      "is_all_day",
+    ] as const;
+
+    let workingPayload = { ...payload };
+    let { data, error } = await persist(workingPayload);
+
+    // Strip unknown columns one-by-one if the live DB is behind migrations.
+    for (let attempt = 0; attempt < optionalFields.length && error; attempt++) {
+      const missing =
+        error.message.match(/'([^']+)' column/i)?.[1] ??
+        optionalFields.find((field) =>
+          error!.message.toLowerCase().includes(field)
+        );
+      if (!missing || !(missing in workingPayload)) break;
+      const { [missing]: _removed, ...rest } = workingPayload;
+      workingPayload = rest;
+      ({ data, error } = await persist(workingPayload));
+    }
+
+    setSaving(false);
+
+    if (error || !data) {
+      setSaveError(
+        error?.message ??
+          "Could not save event. Your database may be missing calendar columns — run the calendar setup SQL in Supabase."
+      );
+      return;
+    }
+
+    const saved = enrichCalendarEvent(data as CalendarEvent, events.length);
+    setEvents((prev) => {
+      const without = prev.filter((ev) => ev.id !== saved.id);
+      return [...without, saved].sort((a, b) =>
+        a.event_date.localeCompare(b.event_date)
+      );
     });
+    setFocusDate(new Date(`${saved.event_date}T12:00:00`));
+    setSelectedEventId(saved.id);
     setShowModal(false);
+    setEditingEvent(null);
+    resetAttachment();
     load();
   }
 
+  async function handleDelete() {
+    if (!selectedEvent) return;
+    const supabase = createClient();
+    await supabase.from("calendar_events").delete().eq("id", selectedEvent.id);
+    setSelectedEventId(null);
+    load();
+  }
+
+  const monthDate = focusDate;
   const miniMonth = monthDate.getMonth();
   const miniYear = monthDate.getFullYear();
   const miniFirstDay = new Date(miniYear, miniMonth, 1).getDay();
@@ -206,143 +696,191 @@ export default function CalendarPage() {
     ...Array.from({ length: miniDaysInMonth }, (_, i) => i + 1),
   ];
 
+  const calendarHeaderLabel =
+    viewMode === "day"
+      ? formatFullDate(focusDate)
+      : viewMode === "week"
+        ? `${weekDays[0].toLocaleDateString("en-US", { month: "long", day: "numeric" })} – ${weekDays[6].toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}`
+        : monthDate.toLocaleDateString("en-US", {
+            month: "long",
+            year: "numeric",
+          });
+
   return (
-    <>
-      <PageHeader
-        title="Calendar"
-        rightSlot={
-          <button
-            type="button"
-            onClick={() => setShowModal(true)}
-            className="shrink-0 rounded-md bg-burgundy px-4 py-2 text-sm font-medium text-white hover:bg-burgundy/90"
-          >
-            + New Event
-          </button>
-        }
-      />
-
-      <div className="mb-4 flex flex-wrap gap-2">
-        {(
-          [
-            { id: "overview", label: "Overview" },
-            { id: "production", label: "Production Calendar" },
-            { id: "personal", label: "Personal Calendar" },
-          ] as const
-        ).map((tab) => (
-          <button
-            key={tab.id}
-            type="button"
-            onClick={() => setCalendarTab(tab.id)}
-            className={`rounded-full px-4 py-1.5 text-sm font-medium transition-colors ${
-              calendarTab === tab.id
-                ? "bg-burgundy text-white"
-                : "border border-gray-300 bg-white text-gray-600 hover:border-gray-400"
-            }`}
-          >
-            {tab.label}
-          </button>
-        ))}
-      </div>
-
-      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={goToday}
-            className="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50"
-          >
-            Today
-          </button>
-          <button
-            type="button"
-            onClick={() => shiftWeek(-1)}
-            className="rounded-md border border-gray-300 p-1.5 hover:bg-gray-50"
-            aria-label="Previous week"
-          >
-            <IconChevronLeft size={18} />
-          </button>
-          <button
-            type="button"
-            onClick={() => shiftWeek(1)}
-            className="rounded-md border border-gray-300 p-1.5 hover:bg-gray-50"
-            aria-label="Next week"
-          >
-            <IconChevronRight size={18} />
-          </button>
-          <button
-            type="button"
-            className="flex items-center gap-1 rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-900 hover:bg-gray-50"
-          >
-            {formatWeekRange(weekStart)}
-            <IconChevronDown size={16} className="text-gray-400" />
-          </button>
-        </div>
-
-        <div className="flex items-center gap-2">
-          <div className="flex rounded-md border border-gray-300 bg-white p-0.5">
-            {(["week", "month", "list"] as const).map((mode) => (
-              <button
-                key={mode}
-                type="button"
-                onClick={() => setViewMode(mode)}
-                className={`rounded px-3 py-1 text-sm capitalize ${
-                  viewMode === mode
-                    ? "bg-gray-900 text-white"
-                    : "text-gray-600 hover:bg-gray-50"
-                }`}
-              >
-                {mode}
-              </button>
-            ))}
+    <div className="flex h-[calc(100vh-2.5rem)] min-h-0 flex-col overflow-hidden">
+      <div className="grid min-h-0 flex-1 grid-cols-1 items-stretch gap-4 xl:grid-cols-[1fr_320px]">
+        <div className="flex min-h-0 min-w-0 flex-col">
+          <div className="mb-2 flex shrink-0 items-center justify-between px-1">
+            <h1 className="text-2xl font-semibold text-gray-900">
+              {calendarScope === "production"
+                ? "Production Calendar"
+                : `${firstName}'s Calendar`}
+            </h1>
+            <div className="flex rounded-md border border-gray-300 bg-white p-0.5">
+              {(["production", "personal"] as const).map((scope) => (
+                <button
+                  key={scope}
+                  type="button"
+                  onClick={() => setCalendarScope(scope)}
+                  className={`rounded px-3 py-1.5 text-sm capitalize ${
+                    calendarScope === scope
+                      ? "bg-burgundy text-white"
+                      : "text-gray-600 hover:bg-gray-50"
+                  }`}
+                >
+                  {scope}
+                </button>
+              ))}
+            </div>
           </div>
-          <button
-            type="button"
-            className="rounded-md border border-gray-300 p-2 text-gray-600 hover:bg-gray-50"
-            aria-label="Calendar settings"
-          >
-            <IconSettings size={18} />
-          </button>
-        </div>
-      </div>
-
-      <div className="grid grid-cols-1 gap-6 xl:grid-cols-[1fr_260px]">
-        <div>
-          <div className="mb-3 flex flex-wrap items-center gap-4 text-sm">
-            <span className="font-medium text-gray-700">Show:</span>
-            {CALENDAR_CATEGORIES.map((cat) => (
-              <label
-                key={cat.id}
-                className="flex cursor-pointer items-center gap-1.5"
-              >
-                <input
-                  type="checkbox"
-                  checked={filters[cat.id]}
-                  onChange={() => toggleFilter(cat.id)}
-                  className="rounded border-gray-300"
-                />
-                <span
-                  className={`inline-block h-2.5 w-2.5 rounded-sm ${cat.border.replace("border-l-", "bg-")}`}
-                />
-                <span className="text-gray-600">{cat.label}</span>
-              </label>
-            ))}
-          </div>
-
           {loading ? (
             <p className="text-gray-500">Loading…</p>
-          ) : viewMode === "week" ? (
-            <div className="overflow-hidden rounded-lg border border-gray-200 bg-white">
-              <div className="grid grid-cols-[56px_repeat(7,1fr)] border-b border-gray-200 bg-gray-50">
-                <div className="border-r border-gray-200 px-2 py-2 text-xs text-gray-400">
-                  all-day
+          ) : (
+            <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border border-gray-200 bg-white">
+              <div className="grid shrink-0 grid-cols-[1fr_auto_1fr] items-center border-b border-gray-200 px-4 py-2.5">
+                <div className="relative justify-self-start">
+                  <select
+                    value={viewMode}
+                    onChange={(e) => setViewMode(e.target.value as ViewMode)}
+                    aria-label="Calendar view"
+                    className={`${SELECT_CLASS} px-3 py-1.5 capitalize text-gray-900 focus:border-burgundy focus:outline-none focus:ring-1 focus:ring-burgundy`}
+                  >
+                    {(["day", "week", "month"] as const).map((mode) => (
+                      <option key={mode} value={mode}>
+                        {mode}
+                      </option>
+                    ))}
+                  </select>
+                  <SelectChevron />
                 </div>
+                <div className="grid grid-cols-[2.25rem_24rem_2.25rem] items-center">
+                  <button
+                    type="button"
+                    onClick={() => shiftDate(-1)}
+                    className="translate-x-[0.75in] justify-self-end rounded-md border border-gray-300 p-1.5 hover:bg-gray-50"
+                    aria-label="Previous"
+                  >
+                    <IconChevronLeft size={18} />
+                  </button>
+                  <h2 className="truncate text-center text-sm font-semibold text-gray-900">
+                    {calendarHeaderLabel}
+                  </h2>
+                  <button
+                    type="button"
+                    onClick={() => shiftDate(1)}
+                    className="-translate-x-[0.75in] justify-self-start rounded-md border border-gray-300 p-1.5 hover:bg-gray-50"
+                    aria-label="Next"
+                  >
+                    <IconChevronRight size={18} />
+                  </button>
+                </div>
+                <div className="flex items-center justify-self-end gap-2">
+                  <AddEventButton onClick={() => openCreateModal()} />
+                  {SHOW_CALENDAR_CHROME && (
+                    <button
+                      type="button"
+                      className="inline-flex items-center gap-1.5 rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50"
+                    >
+                      <IconFilter size={16} />
+                      Filter
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {viewMode === "day" ? (
+              <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+              <div className="grid min-h-0 flex-1 grid-cols-[56px_1fr]">
+                <div className="flex min-h-0 flex-col border-r border-gray-200">
+                  {WEEK_HOURS.map((hour) => (
+                    <div
+                      key={hour}
+                      className="flex flex-1 items-start justify-end border-b border-gray-100 pr-2 pt-1 text-[10px] text-gray-400"
+                    >
+                      {formatHourLabel(hour)}
+                    </div>
+                  ))}
+                </div>
+
+                <div className="relative flex min-h-0 flex-col">
+                  {WEEK_HOURS.map((hour) => (
+                    <div
+                      key={hour}
+                      className="flex-1 border-b border-gray-100"
+                    />
+                  ))}
+
+                  {currentTimePercent !== null && (
+                    <div
+                      className="pointer-events-none absolute left-0 right-0 z-20 flex items-center"
+                      style={{ top: `${currentTimePercent}%` }}
+                    >
+                      <span className="absolute -left-14 w-12 text-right text-[10px] font-medium text-red-500">
+                        {formatMinutesLabel(
+                          now.getHours() * 60 + now.getMinutes()
+                        )}
+                      </span>
+                      <div className="h-0.5 w-full bg-red-500" />
+                    </div>
+                  )}
+
+                  {dayEvents
+                    .filter((e) => !e.isAllDay)
+                    .map((ev) => (
+                      <div
+                        key={ev.id}
+                        className="absolute left-1 right-1 z-10 overflow-hidden"
+                        style={{
+                          top: `${getEventTopPercent(ev.startMinutes)}%`,
+                          height: `${getEventHeightPercent(ev.startMinutes, ev.endMinutes)}%`,
+                          minHeight: "1.75rem",
+                        }}
+                      >
+                        <EventBlock
+                          event={ev}
+                          selected={selectedEventId === ev.id}
+                          onSelect={() => setSelectedEventId(ev.id)}
+                        />
+                      </div>
+                    ))}
+                </div>
+              </div>
+
+              {dayEvents.some((e) => e.isAllDay) && (
+                <div className="shrink-0 border-t border-gray-200 px-4 py-2">
+                  <p className="mb-1 text-xs font-medium text-gray-500">All day</p>
+                  <div className="space-y-1">
+                    {dayEvents
+                      .filter((e) => e.isAllDay)
+                      .map((ev) => (
+                        <EventBlock
+                          key={ev.id}
+                          event={ev}
+                          selected={selectedEventId === ev.id}
+                          onSelect={() => setSelectedEventId(ev.id)}
+                          compact
+                        />
+                      ))}
+                  </div>
+                </div>
+              )}
+              </div>
+              ) : viewMode === "week" ? (
+              <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+              <div className="grid shrink-0 grid-cols-[56px_repeat(7,1fr)] border-b border-gray-200 bg-gray-50">
+                <div className="border-r border-gray-200" />
                 {weekDays.map((day, dayIndex) => {
                   const key = formatDateKey(day);
                   const isToday = key === todayKey;
                   return (
-                    <div
+                    <button
                       key={key}
-                      className={`border-r border-gray-200 px-2 py-2 text-center last:border-r-0 ${
+                      type="button"
+                      onClick={() => {
+                        setFocusDate(day);
+                        setViewMode("day");
+                      }}
+                      className={`border-r border-gray-200 px-2 py-2 text-center last:border-r-0 hover:bg-gray-100 ${
                         isToday ? "bg-burgundy/5" : ""
                       }`}
                     >
@@ -356,36 +894,17 @@ export default function CalendarPage() {
                       >
                         {day.getMonth() + 1}/{day.getDate()}
                       </p>
-                    </div>
+                    </button>
                   );
                 })}
               </div>
 
-              <div className="grid grid-cols-[56px_repeat(7,1fr)] border-b border-gray-200">
-                <div className="border-r border-gray-200" />
-                {weekDays.map((day) => {
-                  const dayEvents = (eventsByDay.get(formatDateKey(day)) ?? []).filter(
-                    (e) => e.isAllDay
-                  );
-                  return (
-                    <div
-                      key={formatDateKey(day)}
-                      className="min-h-[52px] space-y-1 border-r border-gray-200 p-1 last:border-r-0"
-                    >
-                      {dayEvents.map((ev) => (
-                        <EventBlock key={ev.id} event={ev} compact />
-                      ))}
-                    </div>
-                  );
-                })}
-              </div>
-
-              <div className="grid grid-cols-[56px_repeat(7,1fr)]">
-                <div className="border-r border-gray-200">
+              <div className="grid min-h-0 flex-1 grid-cols-[56px_repeat(7,1fr)]">
+                <div className="flex min-h-0 flex-col border-r border-gray-200">
                   {WEEK_HOURS.map((hour) => (
                     <div
                       key={hour}
-                      className="flex h-14 items-start justify-end border-b border-gray-100 pr-2 pt-1 text-[10px] text-gray-400"
+                      className="flex flex-1 items-start justify-end border-b border-gray-100 pr-2 pt-1 text-[10px] text-gray-400"
                     >
                       {formatHourLabel(hour)}
                     </div>
@@ -399,12 +918,12 @@ export default function CalendarPage() {
                   return (
                     <div
                       key={key}
-                      className="relative border-r border-gray-200 last:border-r-0"
+                      className="relative flex min-h-0 flex-col border-r border-gray-200 last:border-r-0"
                     >
                       {WEEK_HOURS.map((hour) => (
                         <div
                           key={hour}
-                          className="h-14 border-b border-gray-100"
+                          className="flex-1 border-b border-gray-100"
                         />
                       ))}
                       {timedEvents.map((ev) => (
@@ -414,35 +933,36 @@ export default function CalendarPage() {
                           style={{
                             top: `${getEventTopPercent(ev.startMinutes)}%`,
                             height: `${getEventHeightPercent(ev.startMinutes, ev.endMinutes)}%`,
-                            minHeight: "2.5rem",
+                            minHeight: "1.25rem",
                           }}
                         >
-                          <EventBlock event={ev} />
+                          <EventBlock
+                            event={ev}
+                            selected={selectedEventId === ev.id}
+                            onSelect={() => setSelectedEventId(ev.id)}
+                            compact
+                          />
                         </div>
                       ))}
                     </div>
                   );
                 })}
               </div>
-            </div>
-          ) : viewMode === "month" ? (
-            <div className="overflow-hidden rounded-lg border border-gray-200 bg-white p-4">
-              <h3 className="mb-3 text-sm font-semibold text-gray-900">
-                {monthDate.toLocaleDateString("en-US", {
-                  month: "long",
-                  year: "numeric",
-                })}
-              </h3>
-              <div className="grid grid-cols-7 gap-1 text-center text-xs text-gray-500">
+              </div>
+              ) : (
+              <div className="flex min-h-0 flex-1 flex-col overflow-hidden p-4">
+              <div className="grid shrink-0 grid-cols-7 gap-1 text-center text-xs text-gray-500">
                 {DAY_HEADERS.map((d) => (
                   <div key={d} className="py-1 font-medium">
                     {d}
                   </div>
                 ))}
+              </div>
+              <div className="grid min-h-0 flex-1 grid-cols-7 auto-rows-fr gap-1 pt-1">
                 {miniCells.map((day, i) => {
                   if (!day) return <div key={`empty-${i}`} />;
                   const dateStr = `${miniYear}-${String(miniMonth + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
-                  const dayEvents = visible.filter((e) => e.event_date === dateStr);
+                  const dayEvts = eventsByDay.get(dateStr) ?? [];
                   const isToday =
                     day === new Date().getDate() &&
                     miniMonth === new Date().getMonth() &&
@@ -451,13 +971,10 @@ export default function CalendarPage() {
                     <button
                       key={dateStr}
                       type="button"
-                      onClick={() => {
-                        setWeekStart(
-                          startOfWeek(new Date(`${dateStr}T12:00:00`))
-                        );
-                        setViewMode("week");
-                      }}
-                      className={`min-h-[72px] rounded border p-1 text-left ${
+                      onClick={() =>
+                        openDatePreview(new Date(`${dateStr}T12:00:00`))
+                      }
+                      className={`flex h-full min-h-0 flex-col rounded border p-1 text-left ${
                         isToday
                           ? "border-burgundy bg-burgundy/5"
                           : "border-gray-100 hover:bg-gray-50"
@@ -471,7 +988,7 @@ export default function CalendarPage() {
                         {day}
                       </span>
                       <div className="mt-0.5 space-y-0.5">
-                        {dayEvents.slice(0, 2).map((ev) => {
+                        {dayEvts.slice(0, 2).map((ev) => {
                           const s = getCategoryStyles(ev.category);
                           return (
                             <div
@@ -482,9 +999,9 @@ export default function CalendarPage() {
                             </div>
                           );
                         })}
-                        {dayEvents.length > 2 && (
+                        {dayEvts.length > 2 && (
                           <p className="text-[9px] text-gray-400">
-                            +{dayEvents.length - 2} more
+                            +{dayEvts.length - 2} more
                           </p>
                         )}
                       </div>
@@ -492,295 +1009,263 @@ export default function CalendarPage() {
                   );
                 })}
               </div>
-            </div>
-          ) : (
-            <div className="rounded-lg border border-gray-200 bg-white divide-y divide-gray-100">
-              {visible.length === 0 ? (
-                <p className="p-6 text-sm text-gray-500">No events to show.</p>
-              ) : (
-                visible.map((ev) => (
-                  <div key={ev.id} className="flex items-center gap-4 px-4 py-3">
-                    <div
-                      className={`w-1 self-stretch rounded-full ${getCategoryStyles(ev.category).border.replace("border-l-", "bg-")}`}
-                    />
-                    <div className="flex-1">
-                      <p className="font-medium text-gray-900">{ev.taskName}</p>
-                      <p className="text-sm text-gray-500">
-                        {ev.clientName}
-                        {ev.jobNumber && ` · ${ev.jobNumber}`}
-                      </p>
-                    </div>
-                    <div className="text-right text-sm text-gray-600">
-                      <p>{ev.event_date}</p>
-                      {!ev.isAllDay && (
-                        <p className="text-xs">
-                          {formatTimeRange(ev.startMinutes, ev.endMinutes)}
-                        </p>
-                      )}
-                    </div>
-                  </div>
-                ))
+              </div>
               )}
             </div>
           )}
-
-          <div className="mt-4 rounded-lg border border-gray-200 bg-white p-4">
-            <h3 className="mb-3 text-sm font-semibold text-gray-900">
-              Calendar Types
-            </h3>
-            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
-              {CALENDAR_LEGEND.map(({ category, description }) => {
-                const s = getCategoryStyles(category);
-                return (
-                  <div key={category} className="flex items-start gap-2 text-sm">
-                    <span
-                      className={`mt-1.5 h-2.5 w-2.5 shrink-0 rounded-sm ${s.border.replace("border-l-", "bg-")}`}
-                    />
-                    <div>
-                      <span className="font-medium text-gray-900">
-                        {CALENDAR_CATEGORIES.find((c) => c.id === category)?.label}
-                      </span>
-                      <span className="text-gray-500"> — {description}</span>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
         </div>
 
-        <aside className="space-y-4">
-          <div className="rounded-lg border border-gray-200 bg-white p-4">
-            <div className="mb-3 flex items-center justify-between">
-              <button
-                type="button"
-                onClick={() =>
-                  setWeekStart(
-                    new Date(miniYear, miniMonth - 1, 1)
-                  )
-                }
-                className="text-gray-400 hover:text-gray-600"
-              >
-                <IconChevronLeft size={16} />
-              </button>
-              <p className="text-sm font-semibold text-gray-900">
-                {monthDate.toLocaleDateString("en-US", {
-                  month: "long",
-                  year: "numeric",
-                })}
-              </p>
-              <button
-                type="button"
-                onClick={() =>
-                  setWeekStart(
-                    new Date(miniYear, miniMonth + 1, 1)
-                  )
-                }
-                className="text-gray-400 hover:text-gray-600"
-              >
-                <IconChevronRight size={16} />
-              </button>
-            </div>
-            <div className="grid grid-cols-7 gap-0.5 text-center text-[10px] text-gray-400">
-              {["M", "T", "W", "T", "F", "S", "S"].map((d, i) => (
-                <div key={`${d}-${i}`}>{d}</div>
-              ))}
-              {miniCells.map((day, i) => {
-                if (!day) return <div key={`m-empty-${i}`} />;
-                const isToday =
-                  day === new Date().getDate() &&
-                  miniMonth === new Date().getMonth() &&
-                  miniYear === new Date().getFullYear();
-                const inWeek =
-                  weekDays.some(
-                    (wd) =>
-                      wd.getDate() === day && wd.getMonth() === miniMonth
-                  );
-                return (
-                  <button
-                    key={`m-${day}`}
-                    type="button"
-                    onClick={() => {
-                      setWeekStart(
-                        startOfWeek(
-                          new Date(miniYear, miniMonth, day)
-                        )
-                      );
-                    }}
-                    className={`mx-auto flex h-7 w-7 items-center justify-center rounded-full text-xs ${
-                      isToday
-                        ? "bg-burgundy font-semibold text-white"
-                        : inWeek
-                          ? "bg-burgundy/10 font-medium text-burgundy"
-                          : "text-gray-700 hover:bg-gray-100"
-                    }`}
-                  >
-                    {day}
-                  </button>
-                );
-              })}
-            </div>
+        <div className="flex min-h-0 flex-col gap-3 xl:h-full">
+          <MiniCalendar
+            displayDate={viewMode === "week" ? weekStart : focusDate}
+            focusDate={focusDate}
+            onSelectDate={openDatePreview}
+            onShiftMonth={shiftMonth}
+          />
+          <div className="flex min-h-0 flex-1 flex-col">
+            <EventDetailPanel
+              event={selectedEvent}
+              onEdit={openEditModal}
+              onDelete={handleDelete}
+            />
           </div>
-
-          <div className="rounded-lg border border-gray-200 bg-white p-4">
-            <h3 className="mb-3 text-sm font-semibold text-gray-900">
-              Upcoming (Next 7 Days)
-            </h3>
-            {upcoming.length === 0 ? (
-              <p className="text-sm text-gray-500">No upcoming events.</p>
-            ) : (
-              <div className="space-y-4">
-                {upcoming.map(({ date, events: dayEvents }) => (
-                  <div key={formatDateKey(date)}>
-                    <p className="mb-2 text-xs font-medium text-gray-500">
-                      {date.toLocaleDateString("en-US", {
-                        month: "short",
-                        day: "numeric",
-                      })}{" "}
-                      ({DAY_HEADERS[(date.getDay() + 6) % 7]})
-                    </p>
-                    <ul className="space-y-2">
-                      {dayEvents.map((ev) => {
-                        const s = getCategoryStyles(ev.category);
-                        return (
-                          <li key={ev.id} className="flex items-start gap-2">
-                            <span
-                              className={`mt-1 h-8 w-1 shrink-0 rounded-full ${s.border.replace("border-l-", "bg-")}`}
-                            />
-                            <div className="min-w-0 flex-1">
-                              <p className="text-xs text-gray-500">
-                                {ev.isAllDay
-                                  ? "All day"
-                                  : formatTimeRange(
-                                      ev.startMinutes,
-                                      ev.endMinutes
-                                    )}
-                              </p>
-                              <p className="truncate text-sm text-gray-900">
-                                {ev.taskName}
-                                {ev.clientName !== "—" && ` — ${ev.clientName}`}
-                              </p>
-                            </div>
-                          </li>
-                        );
-                      })}
-                    </ul>
-                  </div>
-                ))}
-              </div>
-            )}
-            <button
-              type="button"
-              onClick={() => setViewMode("list")}
-              className="mt-3 text-sm font-medium text-burgundy hover:underline"
-            >
-              View all upcoming →
-            </button>
-          </div>
-
-          <div className="rounded-lg border border-gray-200 bg-white p-4">
-            <h3 className="mb-3 text-sm font-semibold text-gray-900">
-              Busy Days (This Month)
-            </h3>
-            {busyDays.length === 0 ? (
-              <p className="text-sm text-gray-500">No busy days this month.</p>
-            ) : (
-              <ul className="space-y-2 text-sm">
-                {busyDays.map(({ date, count }) => (
-                  <li
-                    key={formatDateKey(date)}
-                    className="flex items-center justify-between"
-                  >
-                    <span className="text-gray-700">
-                      {date.toLocaleDateString("en-US", {
-                        month: "short",
-                        day: "numeric",
-                      })}
-                    </span>
-                    <span className="font-medium text-red-600">
-                      {count} event{count !== 1 ? "s" : ""}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            )}
-            <button
-              type="button"
-              onClick={() => setViewMode("month")}
-              className="mt-3 text-sm font-medium text-burgundy hover:underline"
-            >
-              View full calendar →
-            </button>
-          </div>
-        </aside>
+        </div>
       </div>
 
+      {previewDate && (
+        <DatePreviewModal
+          date={previewDate}
+          events={eventsByDay.get(formatDateKey(previewDate)) ?? []}
+          selectedEventId={selectedEventId}
+          onSelectEvent={setSelectedEventId}
+          onAdd={() => openCreateModal(previewDate)}
+          onClose={() => setPreviewDate(null)}
+        />
+      )}
+
       {showModal && (
-        <Modal title="New event" onClose={() => setShowModal(false)}>
-          <form onSubmit={handleCreate} className="space-y-4">
-            <div>
-              <label className="mb-1 block text-sm font-medium">Title</label>
-              <input
-                required
-                value={form.title}
-                onChange={(e) => setForm({ ...form, title: e.target.value })}
-                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
-              />
+        <Modal
+          title={editingEvent ? "Edit event" : "New event"}
+          className="h-[6.75in] w-[6.25in]"
+          onClose={() => {
+            resetAttachment();
+            setShowModal(false);
+          }}
+        >
+          <form onSubmit={handleSave} className="flex h-full min-h-0 flex-col overflow-hidden">
+            <div className="scrollbar-none min-h-0 flex-1 space-y-2.5 overflow-hidden">
+              <div>
+                <label className="mb-0.5 block text-sm font-medium">Title</label>
+                <input
+                  required
+                  value={form.title}
+                  onChange={(e) => setForm({ ...form, title: e.target.value })}
+                  className="w-full rounded-md border border-gray-300 px-3 py-1.5 text-sm"
+                />
+              </div>
+              <div className="flex gap-3">
+                <div className="w-1/2">
+                  <label className="mb-0.5 block text-sm font-medium">Date</label>
+                  <input
+                    type="date"
+                    required
+                    value={form.event_date}
+                    onChange={(e) => updateEventDate(e.target.value)}
+                    className="w-full rounded-md border border-gray-300 px-3 py-1.5 text-sm"
+                  />
+                </div>
+                <div className="w-1/2">
+                  <label className="mb-0.5 block text-sm font-medium">Type</label>
+                  <div className="relative">
+                    <select
+                      value={form.event_type}
+                      onChange={(e) =>
+                        setForm({
+                          ...form,
+                          event_type: e.target.value as CalendarEventType,
+                        })
+                      }
+                      className={`${SELECT_CLASS} w-full px-3 py-1.5`}
+                    >
+                      <option value="production">Production</option>
+                      <option value="delivery">Delivery</option>
+                      <option value="installation">Installation</option>
+                      <option value="quote">Quote / Deadline</option>
+                      <option value="personal">Personal</option>
+                      <option value="other">Other</option>
+                    </select>
+                    <SelectChevron />
+                  </div>
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <div className="flex min-w-0 gap-3">
+                  <div className="flex min-w-0 w-1/2 items-center gap-2">
+                    <span className="w-16 shrink-0 text-sm text-gray-500">
+                      Start time
+                    </span>
+                    <input
+                      type="date"
+                      required
+                      value={form.event_date}
+                      onChange={(e) => updateEventDate(e.target.value)}
+                      className="min-w-0 flex-1 rounded-md border border-gray-300 px-2 py-1.5 text-sm"
+                    />
+                  </div>
+                  <div className="flex min-w-0 w-1/2 items-center gap-2">
+                    <div className="relative shrink-0">
+                      <select
+                        value={form.start_time}
+                        disabled={form.is_all_day}
+                        onChange={(e) =>
+                          setForm({ ...form, start_time: e.target.value })
+                        }
+                        className={`${SELECT_CLASS} w-28 px-2 py-1.5 disabled:bg-gray-50 disabled:text-gray-400`}
+                      >
+                        {TIME_OPTIONS.map((option) => (
+                          <option key={option.value} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </select>
+                      <SelectChevron />
+                    </div>
+                    <label className="flex shrink-0 items-center gap-1.5 text-sm text-gray-700">
+                      <input
+                        type="checkbox"
+                        checked={form.is_all_day}
+                        onChange={(e) =>
+                          setForm({ ...form, is_all_day: e.target.checked })
+                        }
+                        className="rounded border-gray-300"
+                      />
+                      All day
+                    </label>
+                  </div>
+                </div>
+
+                <div className="flex min-w-0 gap-3">
+                  <div className="flex min-w-0 w-1/2 items-center gap-2">
+                    <span className="w-16 shrink-0 text-sm text-gray-500">
+                      End time
+                    </span>
+                    <input
+                      type="date"
+                      required
+                      value={form.end_date}
+                      onChange={(e) =>
+                        setForm({ ...form, end_date: e.target.value })
+                      }
+                      className="min-w-0 flex-1 rounded-md border border-gray-300 px-2 py-1.5 text-sm"
+                    />
+                  </div>
+                  <div className="flex min-w-0 w-1/2 items-center gap-2">
+                    <div className="relative shrink-0">
+                      <select
+                        value={form.end_time}
+                        disabled={form.is_all_day}
+                        onChange={(e) =>
+                          setForm({ ...form, end_time: e.target.value })
+                        }
+                        className={`${SELECT_CLASS} w-28 px-2 py-1.5 disabled:bg-gray-50 disabled:text-gray-400`}
+                      >
+                        {TIME_OPTIONS.map((option) => (
+                          <option key={option.value} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </select>
+                      <SelectChevron />
+                    </div>
+                    <button
+                      type="button"
+                      className="inline-flex min-w-0 shrink items-center gap-1 text-sm font-medium text-burgundy hover:text-burgundy/80"
+                    >
+                      <IconRepeat size={16} className="shrink-0" />
+                      <span className="truncate">Make Recurring</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <div>
+                <label className="mb-0.5 block text-sm font-medium">Location</label>
+                <AddressAutocomplete
+                  id="event-location"
+                  value={form.location}
+                  onChange={(location) => setForm({ ...form, location })}
+                  className="w-full rounded-md border border-gray-300 px-3 py-1.5 text-sm"
+                />
+              </div>
+
+              <div>
+                <label className="mb-0.5 block text-sm font-medium">
+                  Description
+                </label>
+                <textarea
+                  value={form.description}
+                  onChange={(e) =>
+                    setForm({ ...form, description: e.target.value })
+                  }
+                  placeholder="Add a description..."
+                  className="scrollbar-none h-[1.25in] w-full resize-none overflow-hidden rounded-md border border-gray-300 px-3 py-1.5 text-sm"
+                />
+              </div>
             </div>
-            <div>
-              <label className="mb-1 block text-sm font-medium">Type</label>
-              <select
-                value={form.event_type}
-                onChange={(e) =>
-                  setForm({
-                    ...form,
-                    event_type: e.target.value as CalendarEventType,
-                  })
-                }
-                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
-              >
-                <option value="production">Production</option>
-                <option value="delivery">Delivery</option>
-                <option value="installation">Installation</option>
-                <option value="quote">Quote / Deadline</option>
-                <option value="personal">Personal</option>
-                <option value="other">Other</option>
-              </select>
-            </div>
-            <div>
-              <label className="mb-1 block text-sm font-medium">Date</label>
-              <input
-                type="date"
-                required
-                value={form.event_date}
-                onChange={(e) =>
-                  setForm({ ...form, event_date: e.target.value })
-                }
-                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
-              />
-            </div>
-            <label className="flex items-center gap-2 text-sm">
-              <input
-                type="checkbox"
-                checked={form.is_all_day}
-                onChange={(e) =>
-                  setForm({ ...form, is_all_day: e.target.checked })
-                }
-                className="rounded border-gray-300"
-              />
-              All-day event
-            </label>
-            <div className="flex justify-end gap-3">
-              <Button type="button" onClick={() => setShowModal(false)}>
-                Cancel
-              </Button>
-              <Button type="submit" variant="primary">
-                Create event
-              </Button>
+            <div className="flex shrink-0 flex-col gap-2 pt-4">
+              {saveError && (
+                <p className="text-sm text-red-600">{saveError}</p>
+              )}
+              <div className="flex items-center justify-between gap-3">
+              <div className="flex min-w-0 items-center gap-2">
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  className="hidden"
+                  onChange={(e) =>
+                    setAttachedFile(e.target.files?.[0] ?? null)
+                  }
+                />
+                <Button
+                  type="button"
+                  variant="secondary"
+                  className="inline-flex shrink-0 items-center gap-1.5"
+                  onClick={() => fileInputRef.current?.click()}
+                >
+                  <IconPaperclip size={16} />
+                  Attach file
+                </Button>
+                {attachedFile && (
+                  <span className="truncate text-xs text-gray-500">
+                    {attachedFile.name}
+                  </span>
+                )}
+              </div>
+              <div className="flex shrink-0 gap-3">
+                <Button
+                  type="button"
+                  onClick={() => {
+                    resetAttachment();
+                    setSaveError(null);
+                    setShowModal(false);
+                  }}
+                >
+                  Cancel
+                </Button>
+                <Button type="submit" variant="primary" disabled={saving}>
+                  {saving
+                    ? "Saving…"
+                    : editingEvent
+                      ? "Save changes"
+                      : "Create event"}
+                </Button>
+              </div>
+              </div>
             </div>
           </form>
         </Modal>
       )}
-    </>
+    </div>
   );
 }

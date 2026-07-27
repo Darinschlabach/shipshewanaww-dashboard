@@ -281,6 +281,10 @@ export interface CalendarEvent {
   start_time: string | null;
   end_time: string | null;
   is_all_day: boolean | null;
+  location: string | null;
+  description: string | null;
+  user_id: string | null;
+  calendar_scope: "production" | "personal" | null;
   created_at: string;
   jobs?: (Job & { contacts?: { name: string } | null }) | null;
 }

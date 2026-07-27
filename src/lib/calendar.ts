@@ -234,19 +234,27 @@ export function enrichCalendarEvent(
 
 export function filterByCalendarTab(
   events: EnrichedCalendarEvent[],
-  tab: "overview" | "production" | "personal"
+  tab: "overview" | "production" | "personal",
+  currentUserId?: string | null
 ): EnrichedCalendarEvent[] {
   if (tab === "production") {
-    return events.filter((e) =>
-      ["production", "deliveries", "installations", "deadlines"].includes(
-        e.category
-      )
-    );
+    return events.filter((e) => {
+      if (e.calendar_scope === "personal") return false;
+      if (e.calendar_scope === "production") return true;
+      // Legacy rows without scope: treat non-personal types as production
+      return !["personal", "other"].includes(e.category);
+    });
   }
   if (tab === "personal") {
-    return events.filter((e) =>
-      ["personal", "other"].includes(e.category)
-    );
+    return events.filter((e) => {
+      const isPersonalScope =
+        e.calendar_scope === "personal" ||
+        (e.calendar_scope == null &&
+          ["personal", "other"].includes(e.category));
+      if (!isPersonalScope) return false;
+      if (!currentUserId) return false;
+      return e.user_id == null || e.user_id === currentUserId;
+    });
   }
   return events;
 }
@@ -308,6 +316,31 @@ export function eventMatchesFilters(
 export const GRID_START_MINUTES = 7 * 60;
 export const GRID_END_MINUTES = 18 * 60;
 export const GRID_TOTAL_MINUTES = GRID_END_MINUTES - GRID_START_MINUTES;
+
+export function formatMinutesLabel(minutes: number): string {
+  const h = Math.floor(minutes / 60);
+  const m = minutes % 60;
+  const period = h >= 12 ? "PM" : "AM";
+  const hour12 = h % 12 === 0 ? 12 : h % 12;
+  return m === 0
+    ? `${hour12}:00 ${period}`
+    : `${hour12}:${String(m).padStart(2, "0")} ${period}`;
+}
+
+export function formatFullDate(date: Date): string {
+  return date.toLocaleDateString("en-US", {
+    weekday: "long",
+    month: "long",
+    day: "numeric",
+    year: "numeric",
+  });
+}
+
+export function getCurrentTimePercent(now: Date): number | null {
+  const minutes = now.getHours() * 60 + now.getMinutes();
+  if (minutes < GRID_START_MINUTES || minutes > GRID_END_MINUTES) return null;
+  return ((minutes - GRID_START_MINUTES) / GRID_TOTAL_MINUTES) * 100;
+}
 
 export function getEventTopPercent(startMinutes: number): number {
   return (
