@@ -2,12 +2,10 @@ import { formatProductionJobNumber } from "@/lib/production";
 import type { CalendarEvent, CalendarEventType, Job } from "@/lib/types";
 
 export type CalendarCategory =
+  | "drafting"
   | "production"
   | "deliveries"
-  | "installations"
-  | "personal"
-  | "deadlines"
-  | "other";
+  | "shop_closed";
 
 export const CALENDAR_CATEGORIES: {
   id: CalendarCategory;
@@ -15,13 +13,26 @@ export const CALENDAR_CATEGORIES: {
   bg: string;
   border: string;
   text: string;
+  dot: string;
+  muted: string;
 }[] = [
+  {
+    id: "drafting",
+    label: "Drafting",
+    bg: "bg-orange-50",
+    border: "border-l-orange-500",
+    text: "text-orange-900",
+    dot: "bg-orange-500",
+    muted: "text-orange-800/80",
+  },
   {
     id: "production",
     label: "Production",
-    bg: "bg-blue-50",
-    border: "border-l-blue-500",
-    text: "text-blue-900",
+    bg: "bg-red-50",
+    border: "border-l-red-500",
+    text: "text-red-900",
+    dot: "bg-red-500",
+    muted: "text-red-800/80",
   },
   {
     id: "deliveries",
@@ -29,56 +40,83 @@ export const CALENDAR_CATEGORIES: {
     bg: "bg-green-50",
     border: "border-l-green-500",
     text: "text-green-900",
+    dot: "bg-green-500",
+    muted: "text-green-800/80",
   },
   {
-    id: "installations",
-    label: "Installations",
-    bg: "bg-purple-50",
-    border: "border-l-purple-500",
-    text: "text-purple-900",
-  },
-  {
-    id: "personal",
-    label: "Personal",
-    bg: "bg-amber-50",
-    border: "border-l-amber-500",
-    text: "text-amber-900",
-  },
-  {
-    id: "deadlines",
-    label: "Deadlines",
-    bg: "bg-red-50",
-    border: "border-l-red-500",
-    text: "text-red-900",
-  },
-  {
-    id: "other",
-    label: "Other",
-    bg: "bg-gray-50",
+    id: "shop_closed",
+    label: "Shop closed",
+    bg: "bg-gray-100",
     border: "border-l-gray-400",
-    text: "text-gray-900",
+    text: "text-gray-800",
+    dot: "bg-gray-400",
+    muted: "text-gray-600",
   },
 ];
 
+export const CALENDAR_COLOR_PALETTE = [
+  "#f97316",
+  "#ef4444",
+  "#22c55e",
+  "#6b7280",
+  "#3b82f6",
+  "#a855f7",
+  "#eab308",
+  "#ec4899",
+  "#14b8a6",
+  "#64748b",
+] as const;
+
+export type CustomCalendarCategory = {
+  id: string;
+  label: string;
+  color: string;
+};
+
 export const CALENDAR_LEGEND = [
+  { category: "drafting" as const, description: "Drafting and design work" },
   { category: "production" as const, description: "Shop tasks and job work" },
   { category: "deliveries" as const, description: "Deliveries to customers" },
-  { category: "installations" as const, description: "On-site installations" },
-  { category: "personal" as const, description: "Personal appointments" },
-  { category: "deadlines" as const, description: "Quotes, approvals, due dates" },
-  { category: "other" as const, description: "Meetings, calls, etc." },
+  { category: "shop_closed" as const, description: "Shop closed days" },
 ];
 
 export const WEEK_HOURS = [7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17];
 
+export const MONTH_DAY_HEADERS = [
+  "Sun",
+  "Mon",
+  "Tue",
+  "Wed",
+  "Thu",
+  "Fri",
+  "Sat",
+] as const;
+
+/** Six-week grid starting on Sunday, including adjacent-month days. */
+export function buildMonthGrid(monthDate: Date): Date[] {
+  const year = monthDate.getFullYear();
+  const month = monthDate.getMonth();
+  const firstOfMonth = new Date(year, month, 1, 12, 0, 0, 0);
+  const gridStart = new Date(firstOfMonth);
+  gridStart.setDate(firstOfMonth.getDate() - firstOfMonth.getDay());
+
+  return Array.from({ length: 42 }, (_, index) => {
+    const day = new Date(gridStart);
+    day.setDate(gridStart.getDate() + index);
+    return day;
+  });
+}
+
 const CATEGORY_MAP: Record<string, CalendarCategory> = {
+  drafting: "drafting",
   production: "production",
   delivery: "deliveries",
-  quote: "deadlines",
-  installation: "installations",
-  personal: "personal",
-  deadline: "deadlines",
-  other: "other",
+  shop_closed: "shop_closed",
+  quote: "drafting",
+  deadline: "drafting",
+  installation: "production",
+  personal: "drafting",
+  other: "production",
 };
 
 export type EnrichedCalendarEvent = CalendarEvent & {
@@ -92,6 +130,13 @@ export type EnrichedCalendarEvent = CalendarEvent & {
   jobs?: (Job & { contacts?: { name: string } | null }) | null;
 };
 
+export function formatEventStartTime(
+  event: Pick<EnrichedCalendarEvent, "isAllDay" | "startMinutes">
+): string | null {
+  if (event.isAllDay) return null;
+  return formatMinutesLabel(event.startMinutes);
+}
+
 export function getEventCategory(
   eventType: CalendarEventType | string
 ): CalendarCategory {
@@ -100,8 +145,14 @@ export function getEventCategory(
 
 export function getCategoryStyles(category: CalendarCategory) {
   return (
-    CALENDAR_CATEGORIES.find((c) => c.id === category) ?? CALENDAR_CATEGORIES[5]
+    CALENDAR_CATEGORIES.find((c) => c.id === category) ?? CALENDAR_CATEGORIES[1]
   );
+}
+
+export function defaultCategoryFilters(): Record<CalendarCategory, boolean> {
+  return Object.fromEntries(
+    CALENDAR_CATEGORIES.map((category) => [category.id, true])
+  ) as Record<CalendarCategory, boolean>;
 }
 
 export function startOfWeek(date: Date): Date {
@@ -117,6 +168,20 @@ export function addDays(date: Date, days: number): Date {
   const d = new Date(date);
   d.setDate(d.getDate() + days);
   return d;
+}
+
+export function addMonths(date: Date, months: number): Date {
+  const d = new Date(date);
+  d.setMonth(d.getMonth() + months);
+  return d;
+}
+
+export function monthKey(date: Date): string {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
+}
+
+export function formatMonthYear(date: Date): string {
+  return date.toLocaleDateString("en-US", { month: "long", year: "numeric" });
 }
 
 export function formatDateKey(date: Date): string {
@@ -238,23 +303,16 @@ export function filterByCalendarTab(
   currentUserId?: string | null
 ): EnrichedCalendarEvent[] {
   if (tab === "production") {
-    return events.filter((e) => {
-      if (e.calendar_scope === "personal") return false;
-      if (e.calendar_scope === "production") return true;
-      // Legacy rows without scope: treat non-personal types as production
-      return !["personal", "other"].includes(e.category);
-    });
+    return events.filter((e) => e.calendar_scope !== "personal");
   }
   if (tab === "personal") {
-    return events.filter((e) => {
-      const isPersonalScope =
-        e.calendar_scope === "personal" ||
-        (e.calendar_scope == null &&
-          ["personal", "other"].includes(e.category));
-      if (!isPersonalScope) return false;
-      if (!currentUserId) return false;
-      return e.user_id == null || e.user_id === currentUserId;
-    });
+    // Strict ownership: never show another user's personal events,
+    // and never show personal rows with no owner.
+    if (!currentUserId) return [];
+    return events.filter(
+      (e) =>
+        e.calendar_scope === "personal" && e.user_id === currentUserId
+    );
   }
   return events;
 }

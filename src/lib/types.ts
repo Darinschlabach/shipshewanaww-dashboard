@@ -9,11 +9,10 @@ export type LeadStatus =
   | "quote_sent";
 export type JobStage = "quote" | "design" | "production" | "delivery" | "complete";
 
-/** Stages shown in Jobs filters, forms, and detail progress (excludes legacy `quote`). */
+/** Stages shown in Jobs filters, forms, and detail progress (excludes legacy `quote` and `delivery`). */
 export const JOB_ACTIVE_STAGES: JobStage[] = [
   "design",
   "production",
-  "delivery",
   "complete",
 ];
 
@@ -36,8 +35,10 @@ export type KanbanStatus =
   | "ready_for_delivery";
 export type ProductionPriority = "high" | "medium" | "low";
 export type CalendarEventType =
+  | "drafting"
   | "production"
   | "delivery"
+  | "shop_closed"
   | "quote"
   | "installation"
   | "personal"

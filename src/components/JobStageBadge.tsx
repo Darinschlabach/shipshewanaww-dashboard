@@ -3,10 +3,11 @@ import type { Job } from "@/lib/types";
 
 interface JobStageBadgeProps {
   job: Pick<Job, "stage" | "quote_approved_at" | "design_approved_at" | "total_value">;
+  kanbanStatus?: string | null;
 }
 
-export default function JobStageBadge({ job }: JobStageBadgeProps) {
-  const { label, className } = getJobStageDisplay(job);
+export default function JobStageBadge({ job, kanbanStatus }: JobStageBadgeProps) {
+  const { label, className } = getJobStageDisplay(job, kanbanStatus);
 
   return (
     <span

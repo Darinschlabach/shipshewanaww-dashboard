@@ -62,6 +62,9 @@ type JobRow = Job & { contacts: Contact | null };
 export default function JobsPage() {
   const router = useRouter();
   const [jobs, setJobs] = useState<JobRow[]>([]);
+  const [boardStatusByJobId, setBoardStatusByJobId] = useState<
+    Record<string, string>
+  >({});
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [filter, setFilter] = useState("all");
   const [search, setSearch] = useState("");
@@ -91,15 +94,24 @@ export default function JobsPage() {
 
   const load = useCallback(async () => {
     const supabase = createClient();
-    const [{ data: jobsData }, { data: contactsData }] = await Promise.all([
-      supabase
-        .from("jobs")
-        .select("*, contacts(*)")
-        .order("updated_at", { ascending: false }),
-      supabase.from("contacts").select("*").order("name"),
-    ]);
+    const [{ data: jobsData }, { data: contactsData }, { data: boardData }] =
+      await Promise.all([
+        supabase
+          .from("jobs")
+          .select("*, contacts(*)")
+          .order("updated_at", { ascending: false }),
+        supabase.from("contacts").select("*").order("name"),
+        supabase.from("production_jobs").select("job_id, kanban_status"),
+      ]);
     setJobs((jobsData as JobRow[]) ?? []);
     setContacts((contactsData as Contact[]) ?? []);
+    setBoardStatusByJobId(
+      Object.fromEntries(
+        ((boardData as { job_id: string; kanban_status: string }[]) ?? []).map(
+          (row) => [row.job_id, row.kanban_status]
+        )
+      )
+    );
     setLoading(false);
   }, []);
 
@@ -123,7 +135,12 @@ export default function JobsPage() {
     const activeStage = stageFilter || (filter === "all" ? "" : filter);
 
     return jobs.filter((job) => {
-      if (activeStage && job.stage !== activeStage) return false;
+      if (activeStage) {
+        const matchesStage =
+          job.stage === activeStage ||
+          (activeStage === "production" && job.stage === "delivery");
+        if (!matchesStage) return false;
+      }
       if (customerFilter && job.customer_id !== customerFilter) return false;
       if (
         q &&
@@ -397,7 +414,10 @@ export default function JobsPage() {
                     )}
                     {visibleColumns.stage && (
                       <td className="px-4 py-3">
-                        <JobStageBadge job={job} />
+                        <JobStageBadge
+                          job={job}
+                          kanbanStatus={boardStatusByJobId[job.id]}
+                        />
                       </td>
                     )}
                     {visibleColumns.due && (

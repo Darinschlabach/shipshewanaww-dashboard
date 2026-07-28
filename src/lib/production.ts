@@ -1,6 +1,8 @@
 import type { KanbanStatus, ProductionJob } from "@/lib/types";
+import type { SupabaseClient } from "@supabase/supabase-js";
 
 export type ProductionStage =
+  | "queued"
   | "cutting"
   | "edgebanding"
   | "assembly"
@@ -14,16 +16,25 @@ export const PRODUCTION_COLUMNS: {
   label: string;
   accentClass: string;
 }[] = [
-  { id: "cutting", label: "Cutting", accentClass: "border-t-red-500" },
-  { id: "edgebanding", label: "Edgebanding", accentClass: "border-t-purple-500" },
-  { id: "assembly", label: "Assembly", accentClass: "border-t-blue-500" },
-  { id: "finishing", label: "Finishing", accentClass: "border-t-green-500" },
+  { id: "cutting", label: "Fabricating", accentClass: "border-t-red-500" },
+  { id: "edgebanding", label: "Finish Prep", accentClass: "border-t-purple-500" },
+  { id: "assembly", label: "Finishing", accentClass: "border-t-blue-500" },
+  { id: "finishing", label: "Assembly", accentClass: "border-t-yellow-500" },
   {
     id: "ready_for_delivery",
     label: "Ready for Delivery",
-    accentClass: "border-t-emerald-700",
+    accentClass: "border-t-green-700",
   },
 ];
+
+const PRODUCTION_STAGE_BADGE_STYLES: Record<ProductionStage, string> = {
+  queued: "bg-gray-100 text-gray-700",
+  cutting: "bg-red-100 text-red-800",
+  edgebanding: "bg-purple-100 text-purple-800",
+  assembly: "bg-blue-100 text-blue-800",
+  finishing: "bg-yellow-100 text-yellow-800",
+  ready_for_delivery: "bg-green-100 text-green-800",
+};
 
 export const PRODUCTION_DEPARTMENTS = [
   "Shop Floor",
@@ -38,7 +49,7 @@ export const PRODUCTION_PRIORITIES: ProductionPriority[] = [
 ];
 
 const STAGE_MAP: Record<string, ProductionStage> = {
-  queued: "cutting",
+  queued: "queued",
   cutting: "cutting",
   edgebanding: "edgebanding",
   in_progress: "assembly",
@@ -49,6 +60,7 @@ const STAGE_MAP: Record<string, ProductionStage> = {
 };
 
 const DB_STAGE_MAP: Record<ProductionStage, KanbanStatus> = {
+  queued: "queued",
   cutting: "cutting",
   edgebanding: "edgebanding",
   assembly: "assembly",
@@ -57,7 +69,8 @@ const DB_STAGE_MAP: Record<ProductionStage, KanbanStatus> = {
 };
 
 const LEGACY_DB_STAGE_MAP: Record<ProductionStage, KanbanStatus> = {
-  cutting: "queued",
+  queued: "queued",
+  cutting: "cutting",
   edgebanding: "edgebanding",
   assembly: "in_progress",
   finishing: "finishing",
@@ -65,7 +78,24 @@ const LEGACY_DB_STAGE_MAP: Record<ProductionStage, KanbanStatus> = {
 };
 
 export function normalizeProductionStage(status: KanbanStatus | string): ProductionStage {
-  return STAGE_MAP[status] ?? "cutting";
+  return STAGE_MAP[status] ?? "queued";
+}
+
+export function getProductionStageLabel(
+  kanbanStatus: string | null | undefined
+): string | null {
+  if (!kanbanStatus) return null;
+  if (kanbanStatus === "queued") return "Production Queue";
+  const stage = normalizeProductionStage(kanbanStatus);
+  return PRODUCTION_COLUMNS.find((col) => col.id === stage)?.label ?? null;
+}
+
+export function getProductionStageBadgeClass(
+  kanbanStatus: string | null | undefined
+): string | null {
+  if (!kanbanStatus) return null;
+  const stage = normalizeProductionStage(kanbanStatus);
+  return PRODUCTION_STAGE_BADGE_STYLES[stage] ?? null;
 }
 
 export function stageToDbStatus(stage: ProductionStage): KanbanStatus {
@@ -74,6 +104,44 @@ export function stageToDbStatus(stage: ProductionStage): KanbanStatus {
 
 export function stageToLegacyDbStatus(stage: ProductionStage): KanbanStatus {
   return LEGACY_DB_STAGE_MAP[stage] ?? stage;
+}
+
+export function getJobPhaseForProductionStage(
+  stage: ProductionStage
+): "design" | "production" | "delivery" {
+  if (stage === "ready_for_delivery") return "delivery";
+  return "production";
+}
+
+export function kanbanStatusesForStage(stage: ProductionStage): KanbanStatus[] {
+  return [stageToDbStatus(stage), stageToLegacyDbStatus(stage)].filter(
+    (status, index, array) => array.indexOf(status) === index
+  );
+}
+
+export async function persistProductionStage(
+  supabase: SupabaseClient,
+  jobId: string,
+  stage: ProductionStage
+): Promise<{ ok: true; kanbanStatus: KanbanStatus } | { ok: false; error: string }> {
+  let lastError = "Could not update production stage";
+
+  for (const status of kanbanStatusesForStage(stage)) {
+    const { data, error } = await supabase
+      .from("production_jobs")
+      .update({ kanban_status: status })
+      .eq("job_id", jobId)
+      .select("kanban_status")
+      .maybeSingle();
+
+    if (!error && data) {
+      return { ok: true, kanbanStatus: data.kanban_status };
+    }
+
+    lastError = error?.message ?? "Update returned no rows";
+  }
+
+  return { ok: false, error: lastError };
 }
 
 export function formatProductionJobNumber(
@@ -146,7 +214,7 @@ export function getDueDateColor(dueDate: string | null | undefined): string {
 }
 
 export function getDueLabel(dueDate: string | null | undefined): string {
-  if (!dueDate) return "No due date";
+  if (!dueDate) return "No delivery date";
   const due = new Date(`${dueDate}T12:00:00`);
   const today = new Date();
   today.setHours(12, 0, 0, 0);
@@ -154,9 +222,9 @@ export function getDueLabel(dueDate: string | null | undefined): string {
     (due.getTime() - today.getTime()) / (1000 * 60 * 60 * 24)
   );
   if (diffDays < 0) return "Overdue";
-  if (diffDays === 0) return "Due: Today";
-  if (diffDays === 1) return "Due: Tomorrow";
-  return `Due: ${due.toLocaleDateString("en-US", { month: "short", day: "numeric" })}`;
+  if (diffDays === 0) return "Delivery Date: Today";
+  if (diffDays === 1) return "Delivery Date: Tomorrow";
+  return `Delivery Date: ${due.toLocaleDateString("en-US", { month: "short", day: "numeric" })}`;
 }
 
 export function getAssigneeInitials(
@@ -201,10 +269,11 @@ export function avgDaysInProduction(
 
 export function getPriorityTaskLabel(stage: ProductionStage): string {
   const map: Record<ProductionStage, string> = {
-    cutting: "Complete cutting for",
-    edgebanding: "Run edgebanding for",
-    assembly: "Finish assembly for",
-    finishing: "Complete finishing for",
+    queued: "Start fabricating for",
+    cutting: "Complete fabricating for",
+    edgebanding: "Complete finish prep for",
+    assembly: "Complete finishing for",
+    finishing: "Complete assembly for",
     ready_for_delivery: "Schedule delivery for",
   };
   return map[stage];

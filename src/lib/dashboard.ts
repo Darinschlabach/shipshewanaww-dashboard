@@ -16,9 +16,9 @@ export const PIPELINE_STAGES = [
 export const PRODUCTION_STAGES = [
   { id: "drafting", label: "Drafting", color: "#3b82f6" },
   { id: "materials", label: "Materials Ordered", color: "#8b5cf6" },
-  { id: "cutting", label: "Cutting", color: "#ef4444" },
-  { id: "assembly", label: "Assembly", color: "#06b6d4" },
-  { id: "finishing", label: "Finishing", color: "#22c55e" },
+  { id: "cutting", label: "Fabricating", color: "#ef4444" },
+  { id: "assembly", label: "Finishing", color: "#06b6d4" },
+  { id: "finishing", label: "Assembly", color: "#22c55e" },
   { id: "ready", label: "Ready for Delivery", color: "#059669" },
   { id: "delivered", label: "Delivered", color: "#9ca3af" },
 ] as const;

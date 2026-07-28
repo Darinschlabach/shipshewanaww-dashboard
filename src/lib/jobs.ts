@@ -1,3 +1,7 @@
+import {
+  getProductionStageBadgeClass,
+  getProductionStageLabel,
+} from "@/lib/production";
 import { JOB_STAGE_LABELS, type Job, type JobStage } from "@/lib/types";
 
 export type JobStageDisplay =
@@ -30,7 +34,8 @@ export function isJobAwaitingApproval(
 }
 
 export function getJobStageDisplay(
-  job: Pick<Job, "stage" | "quote_approved_at" | "design_approved_at" | "total_value">
+  job: Pick<Job, "stage" | "quote_approved_at" | "design_approved_at" | "total_value">,
+  kanbanStatus?: string | null
 ): { key: JobStageDisplay; label: string; className: string } {
   if (isJobAwaitingApproval(job)) {
     return {
@@ -40,10 +45,20 @@ export function getJobStageDisplay(
     };
   }
 
+  const productionLabel =
+    getProductionStageLabel(kanbanStatus) ??
+    (job.stage === "delivery" ? "Ready for Delivery" : null);
+  const productionBadgeClass =
+    getProductionStageBadgeClass(kanbanStatus) ??
+    (job.stage === "delivery"
+      ? "bg-green-100 text-green-800"
+      : null);
+  const displayStage = job.stage === "delivery" ? "production" : job.stage;
+
   return {
-    key: job.stage,
-    label: JOB_STAGE_LABELS[job.stage],
-    className: STAGE_BADGE_STYLES[job.stage],
+    key: displayStage,
+    label: productionLabel ?? JOB_STAGE_LABELS[job.stage],
+    className: productionBadgeClass ?? STAGE_BADGE_STYLES[displayStage],
   };
 }
 

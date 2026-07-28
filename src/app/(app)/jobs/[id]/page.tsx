@@ -6,12 +6,11 @@ import { useParams, useRouter } from "next/navigation";
 import {
   IconAlertCircle,
   IconArrowNarrowRight,
+  IconDotsVertical,
+  IconBuildingFactory,
+  IconTrash,
 } from "@tabler/icons-react";
 import { createClient } from "@/lib/supabase/client";
-import { unconvertQuoteFromJob } from "@/lib/unconvert-quote";
-import Button from "@/components/Button";
-import ConfirmModal from "@/components/ConfirmModal";
-import Modal from "@/components/Modal";
 import DraftingTab from "@/components/jobs/DraftingTab";
 import ProductionTab from "@/components/jobs/ProductionTab";
 import PurchasingTab from "@/components/jobs/PurchasingTab";
@@ -20,6 +19,7 @@ import FilesTab from "@/components/jobs/FilesTab";
 import FinancialsTab from "@/components/jobs/FinancialsTab";
 import ScheduleTab from "@/components/jobs/ScheduleTab";
 import TasksTab from "@/components/jobs/TasksTab";
+import { getJobStageDisplay } from "@/lib/jobs";
 import {
   formatCurrencyFull,
   formatDate,
@@ -27,11 +27,8 @@ import {
 } from "@/lib/utils";
 import {
   JOB_ACTIVE_STAGES,
-  JOB_STAGE_LABELS,
   type Job,
-  JobStage,
   Contact,
-  Lead,
 } from "@/lib/types";
 
 const JOB_DETAIL_TABS = [
@@ -56,19 +53,14 @@ export default function JobDetailPage() {
   >(null);
   const [notes, setNotes] = useState("");
   const [savingNotes, setSavingNotes] = useState(false);
-  const [showEdit, setShowEdit] = useState(false);
-  const [sourceQuote, setSourceQuote] = useState<Lead | null>(null);
   const [deleting, setDeleting] = useState(false);
-  const [showUnconvert, setShowUnconvert] = useState(false);
-  const [unconverting, setUnconverting] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [sendingToProduction, setSendingToProduction] = useState(false);
+  const [onProductionBoard, setOnProductionBoard] = useState(false);
+  const [boardStatus, setBoardStatus] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<JobDetailTab>("Overview");
   const [purchasingFullScreenMode, setPurchasingFullScreenMode] = useState(false);
-  const [editForm, setEditForm] = useState({
-    name: "",
-    total_value: "",
-    due_date: "",
-    stage: "design" as JobStage,
-  });
 
   const load = useCallback(async () => {
     const supabase = createClient();
@@ -82,21 +74,15 @@ export default function JobDetailPage() {
       const j = data as Job & { contacts: Contact | null };
       setJob(j);
       setNotes(j.notes ?? "");
-      setEditForm({
-        name: j.name,
-        total_value: String(j.total_value),
-        due_date: j.due_date ?? "",
-        stage: j.stage,
-      });
     }
 
-    const { data: quoteData } = await supabase
-      .from("leads")
-      .select("*")
-      .eq("converted_job_id", id)
+    const { data: boardRow } = await supabase
+      .from("production_jobs")
+      .select("id, kanban_status")
+      .eq("job_id", id)
       .maybeSingle();
-
-    setSourceQuote((quoteData as Lead) ?? null);
+    setOnProductionBoard(!!boardRow);
+    setBoardStatus(boardRow?.kanban_status ?? null);
   }, [id]);
 
   useEffect(() => {
@@ -116,6 +102,7 @@ export default function JobDetailPage() {
 
   async function handleDeleteJob() {
     if (!job) return;
+    setMenuOpen(false);
     if (
       !confirm(
         `Delete "${job.name}"? Related production and purchase records will also be removed. This cannot be undone.`
@@ -138,31 +125,62 @@ export default function JobDetailPage() {
     }
   }
 
-  async function handleUnconvert() {
-    if (!sourceQuote || !job) return;
-    setUnconverting(true);
+  async function handleSendToProduction() {
+    if (!job || onProductionBoard) return;
+    setMenuOpen(false);
+    setSendingToProduction(true);
+    setActionError(null);
     const supabase = createClient();
-    const { error } = await unconvertQuoteFromJob(supabase, sourceQuote, job);
-    setUnconverting(false);
-    if (!error) {
-      router.push(`/leads/${sourceQuote.id}`);
-    }
-  }
 
-  async function handleEdit(e: React.FormEvent) {
-    e.preventDefault();
-    const supabase = createClient();
-    await supabase
+    const { error: stageError } = await supabase
       .from("jobs")
-      .update({
-        name: editForm.name,
-        total_value: parseFloat(editForm.total_value) || 0,
-        due_date: editForm.due_date || null,
-        stage: editForm.stage,
-      })
+      .update({ stage: "production" })
       .eq("id", id);
-    setShowEdit(false);
-    load();
+
+    if (stageError) {
+      setSendingToProduction(false);
+      setActionError(stageError.message);
+      return;
+    }
+
+    const { data: existing } = await supabase
+      .from("production_jobs")
+      .select("id")
+      .eq("job_id", id)
+      .maybeSingle();
+
+    if (!existing) {
+      const { error: boardError } = await supabase.from("production_jobs").insert({
+        job_id: id,
+        kanban_status: "queued",
+        due_date: job.due_date || null,
+      });
+
+      if (boardError) {
+        setSendingToProduction(false);
+        setActionError(
+          `Job stage updated, but it could not be added to the production queue: ${boardError.message}`
+        );
+        await load();
+        return;
+      }
+    } else {
+      // Always land in the queue — never skip ahead to fabricating.
+      const { error: queueError } = await supabase
+        .from("production_jobs")
+        .update({ kanban_status: "queued", due_date: job.due_date || null })
+        .eq("job_id", id);
+
+      if (queueError) {
+        setSendingToProduction(false);
+        setActionError(queueError.message);
+        await load();
+        return;
+      }
+    }
+
+    setSendingToProduction(false);
+    await load();
   }
 
   if (!job) {
@@ -170,7 +188,11 @@ export default function JobDetailPage() {
   }
 
   const stageIndex = JOB_ACTIVE_STAGES.indexOf(
-    JOB_ACTIVE_STAGES.includes(job.stage) ? job.stage : "design"
+    job.stage === "delivery"
+      ? "production"
+      : JOB_ACTIVE_STAGES.includes(job.stage)
+        ? job.stage
+        : "design"
   );
   const customerName = job.contacts
     ? job.contacts.name
@@ -184,6 +206,8 @@ export default function JobDetailPage() {
 
   const contact = job.contacts;
   const displayField = (value: string | null | undefined) => value?.trim() || "—";
+  const alreadyInProduction = onProductionBoard;
+  const currentStageLabel = getJobStageDisplay(job, boardStatus);
 
   const isFillHeightTab =
     activeTab === "Drafting" ||
@@ -222,35 +246,71 @@ export default function JobDetailPage() {
           }`}
         >
           <div>
-            <h1 className="text-2xl font-semibold text-gray-900">{job.name}</h1>
+            <div className="flex items-center gap-3">
+              <h1 className="text-2xl font-semibold text-gray-900">{job.name}</h1>
+              <span
+                className={`inline-flex rounded-full px-3 py-1 text-sm font-medium ${currentStageLabel.className}`}
+              >
+                {currentStageLabel.label}
+              </span>
+            </div>
             <p className="mt-1 text-sm text-gray-500">
               {customerName}
               {job.start_date && ` · Started ${formatDateLong(job.start_date)}`}
               {` · ${formatCurrencyFull(Number(job.total_value))}`}
             </p>
           </div>
-          <div className="flex shrink-0 items-center gap-2">
-            {sourceQuote && (
-              <Button
-                onClick={() => setShowUnconvert(true)}
-                disabled={deleting || unconverting}
-              >
-                Convert back to quote
-              </Button>
-            )}
-            <Button onClick={() => setShowEdit(true)} disabled={deleting || unconverting}>
-              Edit job
-            </Button>
+          <div className="relative shrink-0">
             <button
               type="button"
-              onClick={handleDeleteJob}
-              disabled={deleting}
-              className="rounded border border-red-300 bg-white px-3 py-1.5 text-sm text-red-600 hover:border-red-400 hover:bg-red-50 disabled:opacity-50"
+              onClick={() => setMenuOpen((open) => !open)}
+              disabled={deleting || sendingToProduction}
+              className="rounded-md border border-gray-300 bg-white p-2 text-gray-600 hover:bg-gray-50 disabled:opacity-50"
+              aria-label="Job actions"
+              aria-expanded={menuOpen}
             >
-              {deleting ? "Deleting…" : "Delete job"}
+              <IconDotsVertical size={18} />
             </button>
+            {menuOpen && (
+              <>
+                <div
+                  className="fixed inset-0 z-10"
+                  onClick={() => setMenuOpen(false)}
+                />
+                <div className="absolute right-0 top-full z-20 mt-1 w-56 rounded-lg border border-gray-200 bg-white py-1 shadow-lg">
+                  <button
+                    type="button"
+                    onClick={() => void handleSendToProduction()}
+                    disabled={sendingToProduction || alreadyInProduction}
+                    className="flex w-full items-center gap-2.5 px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    <IconBuildingFactory size={16} className="shrink-0 text-gray-500" />
+                    {alreadyInProduction
+                      ? "Already in production"
+                      : sendingToProduction
+                        ? "Sending…"
+                        : "Move to Production"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void handleDeleteJob()}
+                    disabled={deleting}
+                    className="flex w-full items-center gap-2.5 px-3 py-2 text-left text-sm text-red-600 hover:bg-red-50 disabled:opacity-50"
+                  >
+                    <IconTrash size={16} className="shrink-0" />
+                    {deleting ? "Deleting…" : "Delete job"}
+                  </button>
+                </div>
+              </>
+            )}
           </div>
         </div>
+      ) : null}
+
+      {actionError ? (
+        <p className="mb-4 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+          {actionError}
+        </p>
       ) : null}
 
       {!hideJobHeaderForPurchasing ? (
@@ -400,12 +460,12 @@ export default function JobDetailPage() {
             <div className="flex items-center justify-between">
               <span className="text-gray-500">Production</span>
               <span className="text-burgundy">
-                {job.stage === "production" ? "62%" : stageIndex > 1 ? "100%" : "0%"}
+                {job.stage === "production" || job.stage === "delivery"
+                  ? "62%"
+                  : stageIndex > 1
+                    ? "100%"
+                    : "0%"}
               </span>
-            </div>
-            <div className="flex items-center justify-between">
-              <span className="text-gray-500">Delivery</span>
-              <span className="text-gray-400">{job.stage === "delivery" ? "10%" : "0%"}</span>
             </div>
           </div>
         </div>
@@ -507,87 +567,6 @@ export default function JobDetailPage() {
       </div>
         </>
       ) : null}
-
-      {showEdit && (
-        <Modal title="Edit job" onClose={() => setShowEdit(false)}>
-          <form onSubmit={handleEdit} className="space-y-4">
-            <div>
-              <label className="mb-1 block text-sm font-medium">Job name</label>
-              <input
-                required
-                value={editForm.name}
-                onChange={(e) =>
-                  setEditForm({ ...editForm, name: e.target.value })
-                }
-                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
-              />
-            </div>
-            <div>
-              <label className="mb-1 block text-sm font-medium">Stage</label>
-              <select
-                value={editForm.stage}
-                onChange={(e) =>
-                  setEditForm({
-                    ...editForm,
-                    stage: e.target.value as JobStage,
-                  })
-                }
-                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
-              >
-                {JOB_ACTIVE_STAGES.map((s) => (
-                  <option key={s} value={s}>
-                    {JOB_STAGE_LABELS[s]}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label className="mb-1 block text-sm font-medium">Total value</label>
-              <input
-                type="number"
-                value={editForm.total_value}
-                onChange={(e) =>
-                  setEditForm({ ...editForm, total_value: e.target.value })
-                }
-                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
-              />
-            </div>
-            <div>
-              <label className="mb-1 block text-sm font-medium">Due date</label>
-              <input
-                type="date"
-                value={editForm.due_date}
-                onChange={(e) =>
-                  setEditForm({ ...editForm, due_date: e.target.value })
-                }
-                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
-              />
-            </div>
-            <div className="flex justify-end gap-3">
-              <Button type="button" onClick={() => setShowEdit(false)}>
-                Cancel
-              </Button>
-              <Button type="submit" variant="primary">
-                Save
-              </Button>
-            </div>
-          </form>
-        </Modal>
-      )}
-
-      {showUnconvert && sourceQuote && job && (
-        <ConfirmModal
-          title="Convert back to quote?"
-          body={`Restore this job as a quote for ${sourceQuote.customer_name}? The job and any job-only data will be removed.`}
-          confirmLabel="Convert back"
-          loading={unconverting}
-          onConfirm={() => {
-            handleUnconvert();
-            setShowUnconvert(false);
-          }}
-          onCancel={() => setShowUnconvert(false)}
-        />
-      )}
     </div>
   );
 }

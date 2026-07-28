@@ -1,7 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
-import Link from "next/link";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import {
   DndContext,
@@ -24,45 +24,38 @@ import {
   IconCalendar,
   IconClipboardList,
   IconClock,
-  IconDots,
-  IconFilter,
+  IconDotsVertical,
   IconLayoutGrid,
-  IconNote,
   IconPackage,
-  IconSearch,
-  IconStack2,
+  IconTruck,
+  IconX,
+  IconArrowUpRight,
+  IconArrowBack,
+  IconPlayerPlay,
 } from "@tabler/icons-react";
 import { createClient } from "@/lib/supabase/client";
+import Modal from "@/components/Modal";
 import PageHeader from "@/components/PageHeader";
 import { formatDateLong } from "@/lib/utils";
 import {
-  DEFAULT_SHOP_NOTES,
   PRODUCTION_COLUMNS,
-  PRODUCTION_DEPARTMENTS,
-  PRODUCTION_PRIORITIES,
-  avgDaysInProduction,
   formatProductionJobNumber,
-  getAssigneeInitials,
   getDueDateColor,
   getDueLabel,
-  getDueUrgency,
   getPriorityLabel,
   getPriorityStyles,
-  getPriorityTaskLabel,
   getProductionPriority,
   isDueThisWeek,
   isPastDue,
+  getJobPhaseForProductionStage,
   normalizeProductionStage,
+  persistProductionStage,
   stageToDbStatus,
-  stageToLegacyDbStatus,
   type ProductionStage,
 } from "@/lib/production";
 import type { ProductionJob } from "@/lib/types";
 
 type Card = ProductionJob;
-
-const selectClass =
-  "rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-700 focus:border-burgundy focus:outline-none focus:ring-1 focus:ring-burgundy";
 
 function DroppableColumn({
   id,
@@ -81,39 +74,24 @@ function DroppableColumn({
   return (
     <div
       ref={setNodeRef}
-      className={`flex min-h-[420px] flex-col rounded-lg border border-gray-200 border-t-4 bg-white ${accentClass} ${
+      className={`flex h-full min-h-0 flex-col rounded-lg border border-gray-200 border-t-4 bg-white ${accentClass} ${
         isOver ? "ring-2 ring-burgundy/30" : ""
       }`}
     >
-      <div className="flex items-center justify-between px-3 py-3">
-        <div className="flex items-center gap-2">
-          <h3 className="text-xs font-semibold uppercase tracking-wide text-gray-700">
-            {label}
-          </h3>
-          <span className="flex h-5 min-w-[1.25rem] items-center justify-center rounded-full bg-gray-100 px-1.5 text-xs font-medium text-gray-600">
-            {count}
-          </span>
-        </div>
-        <button
-          type="button"
-          className="rounded p-1 text-gray-400 hover:bg-gray-50 hover:text-gray-600"
-          aria-label={`${label} column options`}
-        >
-          <IconDots size={16} />
-        </button>
+      <div className="flex items-center gap-2 px-3 py-3">
+        <h3 className="text-xs font-semibold uppercase tracking-wide text-gray-700">
+          {label}
+        </h3>
+        <span className="flex h-5 min-w-[1.25rem] items-center justify-center rounded-full bg-gray-100 px-1.5 text-xs font-medium text-gray-600">
+          {count}
+        </span>
       </div>
-      <div className="flex flex-1 flex-col px-3 pb-3">{children}</div>
+      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-3 pb-3">{children}</div>
     </div>
   );
 }
 
-function KanbanCardContent({
-  card,
-  index,
-}: {
-  card: Card;
-  index: number;
-}) {
+function KanbanCardContent({ card }: { card: Card }) {
   const job = card.jobs;
   const customerName = job?.contacts?.name ?? "—";
   const dueDate = card.due_date ?? job?.due_date ?? null;
@@ -130,16 +108,13 @@ function KanbanCardContent({
       <p className="mt-0.5 text-xs text-gray-500">{customerName}</p>
       <div className={`mt-3 flex items-center gap-1.5 text-xs ${getDueDateColor(dueDate)}`}>
         <IconCalendar size={14} />
-        <span>Due: {formatDateLong(dueDate)}</span>
+        <span>Delivery Date: {formatDateLong(dueDate)}</span>
       </div>
-      <div className="mt-3 flex items-end justify-between gap-2">
+      <div className="mt-3">
         <span
           className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-medium ${getPriorityStyles(priority)}`}
         >
           {getPriorityLabel(priority)}
-        </span>
-        <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-gray-100 text-[10px] font-semibold text-gray-600">
-          {getAssigneeInitials(card.assignee, index)}
         </span>
       </div>
     </>
@@ -148,12 +123,13 @@ function KanbanCardContent({
 
 function KanbanCard({
   card,
-  index,
+  menuOpen,
+  onMenuClick,
 }: {
   card: Card;
-  index: number;
+  menuOpen: boolean;
+  onMenuClick: (e: React.MouseEvent<HTMLButtonElement>) => void;
 }) {
-  const router = useRouter();
   const { attributes, listeners, setNodeRef, transform, isDragging } =
     useSortable({ id: card.id });
 
@@ -166,35 +142,80 @@ function KanbanCard({
     <div
       ref={setNodeRef}
       style={style}
-      {...attributes}
-      {...listeners}
-      onClick={() => router.push(`/jobs/${card.job_id}`)}
-      className="cursor-pointer rounded-lg border border-gray-200 bg-white p-3 shadow-sm transition-shadow hover:shadow-md"
+      className="relative rounded-lg border border-gray-200 bg-white shadow-sm transition-shadow hover:shadow-md"
     >
-      <KanbanCardContent card={card} index={index} />
+      <button
+        type="button"
+        onPointerDown={(e) => e.stopPropagation()}
+        onClick={onMenuClick}
+        className="absolute right-2 top-2 z-10 rounded p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-600"
+        aria-label="Job actions"
+        aria-expanded={menuOpen}
+      >
+        <IconDotsVertical size={16} />
+      </button>
+      <div {...attributes} {...listeners} className="cursor-grab p-3 pr-8 active:cursor-grabbing">
+        <KanbanCardContent card={card} />
+      </div>
     </div>
   );
 }
 
 export default function ProductionPage() {
+  const router = useRouter();
   const [cards, setCards] = useState<Card[]>([]);
   const [activeCard, setActiveCard] = useState<Card | null>(null);
   const [loading, setLoading] = useState(true);
-  const [search, setSearch] = useState("");
-  const [stageFilter, setStageFilter] = useState("");
-  const [departmentFilter, setDepartmentFilter] = useState("");
-  const [priorityFilter, setPriorityFilter] = useState("");
+  const [showQueue, setShowQueue] = useState(false);
+  const [cardMenu, setCardMenu] = useState<{
+    id: string;
+    top: number;
+    right: number;
+    showStartFabricating: boolean;
+  } | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const loadSeq = useRef(0);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } })
   );
 
   const load = useCallback(async () => {
+    const seq = ++loadSeq.current;
+    setLoading(true);
     const supabase = createClient();
+
+    // Jobs can be marked production without a board row — create any missing ones.
+    const { data: stageJobs } = await supabase
+      .from("jobs")
+      .select("id, due_date")
+      .in("stage", ["production", "delivery"]);
+
+    if (stageJobs?.length) {
+      const { data: existingRows } = await supabase
+        .from("production_jobs")
+        .select("job_id");
+      const existingIds = new Set(
+        (existingRows ?? []).map((row) => row.job_id as string)
+      );
+      const missing = stageJobs.filter((job) => !existingIds.has(job.id));
+      if (missing.length > 0) {
+        await supabase.from("production_jobs").insert(
+          missing.map((job) => ({
+            job_id: job.id,
+            kanban_status: "queued",
+            due_date: job.due_date || null,
+          }))
+        );
+      }
+    }
+
     const { data } = await supabase
       .from("production_jobs")
       .select("*, jobs(*, contacts(name))")
       .order("due_date");
+
+    if (seq !== loadSeq.current) return;
 
     const active = ((data as Card[]) ?? []).filter((card) => {
       const stage = card.jobs?.stage;
@@ -209,71 +230,30 @@ export default function ProductionPage() {
     load();
   }, [load]);
 
-  const filtered = useMemo(() => {
-    const q = search.toLowerCase().trim();
-    return cards.filter((card) => {
-      const stage = normalizeProductionStage(card.kanban_status);
-      const priority = getProductionPriority(card);
-      const job = card.jobs;
-
-      if (stageFilter && stage !== stageFilter) return false;
-      if (departmentFilter && card.department !== departmentFilter) return false;
-      if (priorityFilter && priority !== priorityFilter) return false;
-
-      if (!q) return true;
-      return (
-        (job?.name.toLowerCase().includes(q) ?? false) ||
-        (job?.contacts?.name.toLowerCase().includes(q) ?? false) ||
-        formatProductionJobNumber(job ?? undefined).toLowerCase().includes(q)
-      );
-    });
-  }, [cards, search, stageFilter, departmentFilter, priorityFilter]);
-
   const stats = useMemo(
-    () => ({
-      total: filtered.length,
-      dueThisWeek: filtered.filter((c) =>
-        isDueThisWeek(c.due_date ?? c.jobs?.due_date)
-      ).length,
-      pastDue: filtered.filter((c) =>
-        isPastDue(c.due_date ?? c.jobs?.due_date)
-      ).length,
-      readyForDelivery: filtered.filter(
-        (c) => normalizeProductionStage(c.kanban_status) === "ready_for_delivery"
-      ).length,
-      avgDays: avgDaysInProduction(filtered),
-    }),
-    [filtered]
+    () => {
+      const activeCards = cards.filter(
+        (c) => normalizeProductionStage(c.kanban_status) !== "queued"
+      );
+      return {
+        total: activeCards.length,
+        dueThisWeek: activeCards.filter((c) =>
+          isDueThisWeek(c.due_date ?? c.jobs?.due_date)
+        ).length,
+        pastDue: activeCards.filter((c) =>
+          isPastDue(c.due_date ?? c.jobs?.due_date)
+        ).length,
+        readyForDelivery: activeCards.filter(
+          (c) =>
+            normalizeProductionStage(c.kanban_status) === "ready_for_delivery"
+        ).length,
+      };
+    },
+    [cards]
   );
 
-  const todaysPriorities = useMemo(() => {
-    return [...filtered]
-      .sort((a, b) => {
-        const urgencyOrder = { past: 0, urgent: 1, soon: 2, normal: 3 };
-        const aUrgency = urgencyOrder[getDueUrgency(a.due_date ?? a.jobs?.due_date)];
-        const bUrgency = urgencyOrder[getDueUrgency(b.due_date ?? b.jobs?.due_date)];
-        return aUrgency - bUrgency;
-      })
-      .slice(0, 3)
-      .map((card) => {
-        const stage = normalizeProductionStage(card.kanban_status);
-        const dueDate = card.due_date ?? card.jobs?.due_date;
-        const dueLabel = getDueLabel(dueDate);
-        const isUrgent =
-          getDueUrgency(dueDate) === "past" || getDueUrgency(dueDate) === "urgent";
-
-        return {
-          id: card.id,
-          task: `${getPriorityTaskLabel(stage)} ${card.jobs?.name ?? "job"}`,
-          jobNumber: formatProductionJobNumber(card.jobs ?? undefined),
-          dueLabel,
-          urgent: isUrgent,
-        };
-      });
-  }, [filtered]);
-
   function getColumnCards(stage: ProductionStage) {
-    return filtered.filter(
+    return cards.filter(
       (c) => normalizeProductionStage(c.kanban_status) === stage
     );
   }
@@ -283,20 +263,29 @@ export default function ProductionPage() {
     setActiveCard(card ?? null);
   }
 
-  async function persistStatus(cardId: string, stage: ProductionStage) {
+  async function persistStatus(
+    card: Card,
+    stage: ProductionStage
+  ): Promise<boolean> {
     const supabase = createClient();
-    const status = stageToDbStatus(stage);
-    const { error } = await supabase
-      .from("production_jobs")
-      .update({ kanban_status: status })
-      .eq("id", cardId);
+    const result = await persistProductionStage(supabase, card.job_id, stage);
 
-    if (error) {
-      await supabase
-        .from("production_jobs")
-        .update({ kanban_status: stageToLegacyDbStatus(stage) })
-        .eq("id", cardId);
+    if (!result.ok) {
+      return false;
     }
+
+    setCards((prev) =>
+      prev.map((c) =>
+        c.id === card.id ? { ...c, kanban_status: result.kanbanStatus } : c
+      )
+    );
+
+    await supabase
+      .from("jobs")
+      .update({ stage: getJobPhaseForProductionStage(stage) })
+      .eq("id", card.job_id);
+
+    return true;
   }
 
   async function handleDragEnd(event: DragEndEvent) {
@@ -323,13 +312,111 @@ export default function ProductionPage() {
       return;
     }
 
+    const previousStatus = card.kanban_status;
+
     setCards((prev) =>
       prev.map((c) =>
         c.id === cardId ? { ...c, kanban_status: stageToDbStatus(newStage!) } : c
       )
     );
 
-    await persistStatus(cardId, newStage);
+    setSaveError(null);
+    const saved = await persistStatus(card, newStage);
+    if (!saved) {
+      setCards((prev) =>
+        prev.map((c) =>
+          c.id === cardId ? { ...c, kanban_status: previousStatus } : c
+        )
+      );
+      setSaveError("Could not save the production stage. Please try again.");
+    }
+  }
+
+  const queueJobs = useMemo(() => {
+    return cards
+      .filter((card) => normalizeProductionStage(card.kanban_status) === "queued")
+      .sort((a, b) => {
+        const dueA = a.due_date ?? a.jobs?.due_date ?? "";
+        const dueB = b.due_date ?? b.jobs?.due_date ?? "";
+        return dueA.localeCompare(dueB);
+      });
+  }, [cards]);
+
+  async function startFabricating(cardId: string) {
+    const card = cards.find((c) => c.id === cardId);
+    if (!card) return;
+    const previousStatus = card.kanban_status;
+    setCards((prev) =>
+      prev.map((c) =>
+        c.id === cardId ? { ...c, kanban_status: "cutting" } : c
+      )
+    );
+    setCardMenu(null);
+    setSaveError(null);
+    const saved = await persistStatus(card, "cutting");
+    if (!saved) {
+      setCards((prev) =>
+        prev.map((c) =>
+          c.id === cardId ? { ...c, kanban_status: previousStatus } : c
+        )
+      );
+      setSaveError("Could not move the job to Fabricating. Please try again.");
+    }
+  }
+
+  async function moveToQueue(cardId: string) {
+    const card = cards.find((c) => c.id === cardId);
+    if (!card) return;
+    if (normalizeProductionStage(card.kanban_status) === "queued") return;
+
+    const previousStatus = card.kanban_status;
+    setCards((prev) =>
+      prev.map((c) =>
+        c.id === cardId ? { ...c, kanban_status: "queued" } : c
+      )
+    );
+    setCardMenu(null);
+    setSaveError(null);
+    const saved = await persistStatus(card, "queued");
+    if (!saved) {
+      setCards((prev) =>
+        prev.map((c) =>
+          c.id === cardId ? { ...c, kanban_status: previousStatus } : c
+        )
+      );
+      setSaveError("Could not move the job to the production queue. Please try again.");
+    }
+  }
+
+  async function removeFromProduction(card: Card) {
+    setCardMenu(null);
+    setCards((prev) => prev.filter((c) => c.id !== card.id));
+
+    const supabase = createClient();
+    await supabase.from("production_jobs").delete().eq("id", card.id);
+    // Move job stage out of production so sync doesn't put it back on the board.
+    if (card.job_id) {
+      await supabase.from("jobs").update({ stage: "design" }).eq("id", card.job_id);
+    }
+  }
+
+  function openCardMenu(
+    e: React.MouseEvent<HTMLButtonElement>,
+    cardId: string,
+    showStartFabricating: boolean
+  ) {
+    e.stopPropagation();
+    const rect = e.currentTarget.getBoundingClientRect();
+    setCardMenu((prev) =>
+      prev?.id === cardId
+        ? null
+        : {
+            id: cardId,
+            top: rect.bottom + 4,
+            right: window.innerWidth - rect.right,
+            showStartFabricating,
+          }
+    );
   }
 
   const statItems = [
@@ -338,12 +425,6 @@ export default function ProductionPage() {
       iconClass: "text-blue-500",
       value: stats.total,
       label: "Total in Production",
-    },
-    {
-      icon: IconStack2,
-      iconClass: "text-orange-500",
-      value: stats.dueThisWeek,
-      label: "Due This Week",
     },
     {
       icon: IconClock,
@@ -358,29 +439,37 @@ export default function ProductionPage() {
       label: "Ready for Delivery",
     },
     {
-      icon: IconCalendar,
-      iconClass: "text-blue-700",
-      value: stats.avgDays,
-      label: "Avg. Days in Production",
+      icon: IconTruck,
+      iconClass: "text-orange-500",
+      value: stats.dueThisWeek,
+      label: "Deliveries This Week",
     },
   ];
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className="flex h-[calc(100vh-2.5rem)] flex-col gap-6">
       <PageHeader
         title="Production"
         subtitle="Shop floor overview of all jobs in production"
         rightSlot={
-          <Link
-            href="/jobs"
-            className="shrink-0 rounded-md bg-burgundy px-4 py-2 text-sm font-medium text-white hover:bg-burgundy/90"
+          <button
+            type="button"
+            onClick={() => setShowQueue(true)}
+            className="inline-flex shrink-0 items-center gap-2 rounded-md bg-burgundy px-4 py-2 text-sm font-medium text-white hover:bg-burgundy/90"
           >
-            + New Production Task
-          </Link>
+            Production Queue
+            <IconLayoutGrid size={16} stroke={1.75} />
+          </button>
         }
       />
 
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
+      {saveError ? (
+        <p className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+          {saveError}
+        </p>
+      ) : null}
+
+      <div className="grid shrink-0 grid-cols-2 gap-3 lg:grid-cols-4">
         {statItems.map(({ icon: Icon, iconClass, value, label }) => (
           <div
             key={label}
@@ -395,87 +484,17 @@ export default function ProductionPage() {
         ))}
       </div>
 
-      <div className="flex flex-wrap items-center gap-3">
-        <div className="relative min-w-[220px] flex-1">
-          <IconSearch
-            size={18}
-            className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"
-          />
-          <input
-            type="search"
-            placeholder="Search jobs…"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="w-full rounded-md border border-gray-300 py-2 pl-10 pr-3 text-sm focus:border-burgundy focus:outline-none focus:ring-1 focus:ring-burgundy"
-          />
-        </div>
-
-        <select
-          value={stageFilter}
-          onChange={(e) => setStageFilter(e.target.value)}
-          className={selectClass}
-        >
-          <option value="">All Stages</option>
-          {PRODUCTION_COLUMNS.map((col) => (
-            <option key={col.id} value={col.id}>
-              {col.label}
-            </option>
-          ))}
-        </select>
-
-        <select
-          value={departmentFilter}
-          onChange={(e) => setDepartmentFilter(e.target.value)}
-          className={selectClass}
-        >
-          <option value="">All Departments</option>
-          {PRODUCTION_DEPARTMENTS.map((dept) => (
-            <option key={dept} value={dept}>
-              {dept}
-            </option>
-          ))}
-        </select>
-
-        <select
-          value={priorityFilter}
-          onChange={(e) => setPriorityFilter(e.target.value)}
-          className={selectClass}
-        >
-          <option value="">All Priorities</option>
-          {PRODUCTION_PRIORITIES.map((p) => (
-            <option key={p} value={p}>
-              {getPriorityLabel(p)}
-            </option>
-          ))}
-        </select>
-
-        <button
-          type="button"
-          className="inline-flex items-center gap-2 rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"
-        >
-          <IconFilter size={16} />
-          Filters
-        </button>
-
-        <button
-          type="button"
-          className="inline-flex items-center gap-2 rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"
-        >
-          <IconLayoutGrid size={16} />
-          View
-        </button>
-      </div>
-
       {loading ? (
         <p className="text-gray-500">Loading…</p>
       ) : (
-        <DndContext
-          sensors={sensors}
-          collisionDetection={closestCorners}
-          onDragStart={handleDragStart}
-          onDragEnd={handleDragEnd}
-        >
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-5">
+        <div className="flex min-h-0 flex-1 flex-col">
+          <DndContext
+            sensors={sensors}
+            collisionDetection={closestCorners}
+            onDragStart={handleDragStart}
+            onDragEnd={(event) => void handleDragEnd(event)}
+          >
+            <div className="grid min-h-0 flex-1 grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-5">
             {PRODUCTION_COLUMNS.map((col) => {
               const columnCards = getColumnCards(col.id);
               return (
@@ -507,18 +526,19 @@ export default function ProductionPage() {
                           </p>
                         </div>
                       ) : (
-                        columnCards.map((card, index) => (
-                          <KanbanCard key={card.id} card={card} index={index} />
+                        columnCards.map((card) => (
+                          <KanbanCard
+                            key={card.id}
+                            card={card}
+                            menuOpen={cardMenu?.id === card.id}
+                            onMenuClick={(e) =>
+                              openCardMenu(e, card.id, false)
+                            }
+                          />
                         ))
                       )}
                     </div>
                   </SortableContext>
-                  <Link
-                    href="/jobs"
-                    className="mt-3 block text-center text-sm font-medium text-burgundy hover:underline"
-                  >
-                    + Add Job
-                  </Link>
                 </DroppableColumn>
               );
             })}
@@ -527,66 +547,145 @@ export default function ProductionPage() {
           <DragOverlay>
             {activeCard ? (
               <div className="rounded-lg border border-gray-200 bg-white p-3 shadow-lg">
-                <KanbanCardContent
-                  card={activeCard}
-                  index={cards.indexOf(activeCard)}
-                />
+                <KanbanCardContent card={activeCard} />
               </div>
             ) : null}
           </DragOverlay>
-        </DndContext>
+          </DndContext>
+        </div>
       )}
 
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-        <div className="rounded-lg border border-gray-200 bg-white p-5">
-          <h3 className="mb-4 text-sm font-semibold text-gray-900">
-            Today&apos;s Priorities
-          </h3>
-          {todaysPriorities.length === 0 ? (
-            <p className="text-sm text-gray-500">No urgent tasks today.</p>
+      {showQueue && (
+        <Modal
+          title={`Production Queue (${queueJobs.length})`}
+          onClose={() => {
+            setCardMenu(null);
+            setShowQueue(false);
+          }}
+          className="max-h-[85vh] w-full max-w-lg"
+        >
+          {queueJobs.length === 0 ? (
+            <p className="text-sm text-gray-500">
+              No jobs are currently in the production queue.
+            </p>
           ) : (
-            <ul className="space-y-3">
-              {todaysPriorities.map((item) => (
-                <li
-                  key={item.id}
-                  className="flex items-start justify-between gap-3 text-sm"
-                >
-                  <div className="flex items-start gap-2">
-                    <span
-                      className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${
-                        item.urgent ? "bg-red-500" : "bg-amber-400"
-                      }`}
-                    />
-                    <div>
-                      <p className="text-gray-900">{item.task}</p>
-                      <p className="text-xs text-gray-500">{item.jobNumber}</p>
-                    </div>
-                  </div>
-                  <span
-                    className={`shrink-0 text-xs font-medium ${
-                      item.urgent ? "text-red-600" : "text-gray-500"
-                    }`}
-                  >
-                    {item.dueLabel}
-                  </span>
-                </li>
-              ))}
-            </ul>
+            <div className="min-h-0 flex-1 overflow-y-auto">
+              <ul className="divide-y divide-gray-100">
+                {queueJobs.map((card) => {
+                  const job = card.jobs;
+                  const dueDate = card.due_date ?? job?.due_date ?? null;
+                  return (
+                    <li
+                      key={card.id}
+                      className="relative flex items-center gap-3 px-1 py-2.5"
+                    >
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setCardMenu(null);
+                          setShowQueue(false);
+                          router.push(`/jobs/${card.job_id}`);
+                        }}
+                        className="flex min-w-0 flex-1 items-center gap-3 text-left hover:opacity-80"
+                      >
+                        <span className="w-14 shrink-0 text-xs text-gray-400">
+                          {formatProductionJobNumber(job ?? undefined)}
+                        </span>
+                        <span className="max-w-[9rem] shrink-0 truncate text-sm font-medium text-gray-900">
+                          {job?.name ?? "Untitled job"}
+                        </span>
+                        <span className="min-w-0 max-w-[10rem] truncate text-xs text-gray-500">
+                          {job?.contacts?.name ?? "—"}
+                        </span>
+                        <span className="min-w-0 flex-1" />
+                        <span
+                          className={`shrink-0 text-xs ${getDueDateColor(dueDate)}`}
+                        >
+                          {getDueLabel(dueDate)}
+                        </span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={(e) => openCardMenu(e, card.id, true)}
+                        className="shrink-0 rounded p-1.5 text-gray-500 hover:bg-gray-100 hover:text-gray-700"
+                        aria-label="Job actions"
+                        aria-expanded={cardMenu?.id === card.id}
+                      >
+                        <IconDotsVertical size={16} />
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
           )}
-        </div>
+        </Modal>
+      )}
 
-        <div className="rounded-lg border border-gray-200 bg-white p-5">
-          <h3 className="mb-4 text-sm font-semibold text-gray-900">Shop Notes</h3>
-          <ul className="space-y-3 text-sm text-gray-700">
-            {DEFAULT_SHOP_NOTES.map((note) => (
-              <li key={note} className="flex items-start gap-2">
-                <IconNote size={16} className="mt-0.5 shrink-0 text-gray-400" />
-                <span>{note}</span>
-              </li>
-            ))}
-          </ul>
-        </div>
-      </div>
+      {cardMenu &&
+        typeof document !== "undefined" &&
+        createPortal(
+          <>
+            <div
+              className="fixed inset-0 z-[60]"
+              onClick={() => setCardMenu(null)}
+            />
+            <div
+              className="fixed z-[70] w-52 rounded-lg border border-gray-200 bg-white py-1 shadow-lg"
+              style={{ top: cardMenu.top, right: cardMenu.right }}
+            >
+              <button
+                type="button"
+                onClick={() => {
+                  const card = cards.find((c) => c.id === cardMenu.id);
+                  if (!card) return;
+                  setCardMenu(null);
+                  setShowQueue(false);
+                  router.push(`/jobs/${card.job_id}`);
+                }}
+                className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-50"
+              >
+                <IconArrowUpRight size={14} stroke={2} />
+                Open Job
+              </button>
+              {cardMenu.showStartFabricating ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    void startFabricating(cardMenu.id);
+                  }}
+                  className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-50"
+                >
+                  <IconPlayerPlay size={14} stroke={2} />
+                  Start Fabricating
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => {
+                    void moveToQueue(cardMenu.id);
+                  }}
+                  className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-50"
+                >
+                  <IconArrowBack size={14} stroke={2} />
+                  Move to queue
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => {
+                  const card = cards.find((c) => c.id === cardMenu.id);
+                  if (card) void removeFromProduction(card);
+                }}
+                className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-red-600 hover:bg-red-50"
+              >
+                <IconX size={14} stroke={2} />
+                Remove From Production
+              </button>
+            </div>
+          </>,
+          document.body
+        )}
     </div>
   );
 }

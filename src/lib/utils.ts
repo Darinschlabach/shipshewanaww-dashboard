@@ -99,12 +99,12 @@ export function poStatusLabel(status: string): string {
 
 export function kanbanColumnLabel(status: string): string {
   const map: Record<string, string> = {
-    queued: "Cutting",
-    cutting: "Cutting",
-    edgebanding: "Edgebanding",
-    in_progress: "Assembly",
-    assembly: "Assembly",
-    finishing: "Finishing",
+    queued: "Queue",
+    cutting: "Fabricating",
+    edgebanding: "Finish Prep",
+    in_progress: "Finishing",
+    assembly: "Finishing",
+    finishing: "Assembly",
     ready_to_ship: "Ready for Delivery",
     ready_for_delivery: "Ready for Delivery",
   };

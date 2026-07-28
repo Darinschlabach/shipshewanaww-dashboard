@@ -1,15 +1,17 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import Link from "next/link";
 import {
+  IconAdjustmentsHorizontal,
   IconCalendar,
+  IconCheck,
   IconChevronDown,
   IconChevronLeft,
   IconChevronRight,
   IconFilter,
   IconHome,
   IconPaperclip,
+  IconPencil,
   IconPlus,
   IconRepeat,
   IconTrash,
@@ -24,9 +26,15 @@ import MiniCalendar from "@/components/calendar/MiniCalendar";
 import {
   WEEK_HOURS,
   addDays,
+  buildMonthGrid,
+  CALENDAR_CATEGORIES,
+  CALENDAR_COLOR_PALETTE,
+  defaultCategoryFilters,
   enrichCalendarEvent,
+  eventMatchesFilters,
   filterByCalendarTab,
   formatDateKey,
+  formatEventStartTime,
   formatFullDate,
   formatHourLabel,
   formatMinutesLabel,
@@ -35,7 +43,10 @@ import {
   getCurrentTimePercent,
   getEventHeightPercent,
   getEventTopPercent,
+  MONTH_DAY_HEADERS,
   startOfWeek,
+  type CalendarCategory,
+  type CustomCalendarCategory,
   type EnrichedCalendarEvent,
 } from "@/lib/calendar";
 import type { CalendarEvent, CalendarEventType } from "@/lib/types";
@@ -105,13 +116,265 @@ function eventIcon(category: EnrichedCalendarEvent["category"]) {
   switch (category) {
     case "deliveries":
       return IconTruck;
-    case "installations":
-      return IconHome;
-    case "personal":
+    case "drafting":
       return IconUser;
+    case "shop_closed":
+      return IconHome;
     default:
       return IconCalendar;
   }
+}
+
+function CategoryCheckboxRow({
+  label,
+  checked,
+  dotClassName,
+  dotColor,
+  onToggle,
+}: {
+  label: string;
+  checked: boolean;
+  dotClassName?: string;
+  dotColor?: string;
+  onToggle: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      className="flex w-full items-center gap-3 text-left"
+    >
+      <span
+        className={`flex h-5 w-5 shrink-0 items-center justify-center rounded border ${
+          checked && dotClassName
+            ? `${dotClassName} border-transparent text-white`
+            : checked
+              ? "border-transparent text-white"
+              : "border-gray-300 bg-white"
+        }`}
+        style={
+          checked && dotColor
+            ? { backgroundColor: dotColor, borderColor: dotColor }
+            : undefined
+        }
+      >
+        {checked ? <IconCheck size={14} stroke={3} /> : null}
+      </span>
+      <span className="text-sm font-medium text-gray-900">{label}</span>
+    </button>
+  );
+}
+
+function AddCategoryModal({
+  name,
+  color,
+  onNameChange,
+  onColorChange,
+  onClose,
+  onCreate,
+}: {
+  name: string;
+  color: string;
+  onNameChange: (name: string) => void;
+  onColorChange: (color: string) => void;
+  onClose: () => void;
+  onCreate: () => void;
+}) {
+  const canCreate = name.trim().length > 0;
+
+  return (
+    <Modal title="Add category" className="w-full max-w-sm" onClose={onClose}>
+      <div className="space-y-4">
+        <div>
+          <label className="mb-1 block text-sm font-medium text-gray-700">
+            Category name
+          </label>
+          <input
+            autoFocus
+            value={name}
+            onChange={(e) => onNameChange(e.target.value)}
+            placeholder="Enter category name"
+            className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
+          />
+        </div>
+        <div>
+          <label className="mb-2 block text-sm font-medium text-gray-700">
+            Color
+          </label>
+          <div className="grid grid-cols-5 gap-2">
+            {CALENDAR_COLOR_PALETTE.map((paletteColor) => {
+              const selected = color === paletteColor;
+              return (
+                <button
+                  key={paletteColor}
+                  type="button"
+                  onClick={() => onColorChange(paletteColor)}
+                  className={`flex h-8 w-8 items-center justify-center rounded-md border-2 ${
+                    selected ? "border-gray-900" : "border-transparent"
+                  }`}
+                  aria-label={`Select color ${paletteColor}`}
+                >
+                  <span
+                    className="h-6 w-6 rounded"
+                    style={{ backgroundColor: paletteColor }}
+                  />
+                </button>
+              );
+            })}
+          </div>
+        </div>
+        <div className="flex justify-end gap-2 pt-2">
+          <Button type="button" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button
+            type="button"
+            variant="primary"
+            disabled={!canCreate}
+            onClick={onCreate}
+          >
+            Add category
+          </Button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+function CalendarToolsPanel({
+  filters,
+  customCategories,
+  customFilters,
+  onToggle,
+  onToggleCustom,
+  showOnlyStartDates,
+  onToggleStartDates,
+  onOpenAddCategory,
+}: {
+  filters: Record<CalendarCategory, boolean>;
+  customCategories: CustomCalendarCategory[];
+  customFilters: Record<string, boolean>;
+  onToggle: (category: CalendarCategory) => void;
+  onToggleCustom: (categoryId: string) => void;
+  showOnlyStartDates: boolean;
+  onToggleStartDates: () => void;
+  onOpenAddCategory: () => void;
+}) {
+  return (
+    <aside className="flex min-h-0 flex-1 flex-col rounded-lg border border-gray-200 bg-white">
+      <div className="flex shrink-0 items-center gap-2 px-5 py-3">
+        <IconAdjustmentsHorizontal
+          size={16}
+          className="shrink-0 text-gray-500"
+          aria-hidden
+        />
+        <h3 className="text-sm font-semibold text-gray-900">Calendar Tools</h3>
+      </div>
+      <div className="min-h-0 flex-1" aria-hidden />
+      <div className="shrink-0 border-t border-gray-100 p-5">
+        <div className="flex gap-4">
+          <ul className="min-w-0 flex-1 space-y-3">
+            {CALENDAR_CATEGORIES.map((category) => (
+              <li key={category.id}>
+                <CategoryCheckboxRow
+                  label={category.label}
+                  checked={filters[category.id]}
+                  dotClassName={category.dot}
+                  onToggle={() => onToggle(category.id)}
+                />
+              </li>
+            ))}
+          </ul>
+          {customCategories.length > 0 ? (
+            <ul className="min-w-0 flex-1 space-y-3">
+              {customCategories.map((category) => (
+                <li key={category.id}>
+                  <CategoryCheckboxRow
+                    label={category.label}
+                    checked={customFilters[category.id] ?? true}
+                    dotColor={category.color}
+                    onToggle={() => onToggleCustom(category.id)}
+                  />
+                </li>
+              ))}
+            </ul>
+          ) : null}
+        </div>
+        <div className="mt-4 flex items-center justify-between gap-3 border-t border-gray-100 pt-3">
+          <button
+            type="button"
+            onClick={onToggleStartDates}
+            className="flex min-w-0 flex-1 items-center gap-2 text-left"
+          >
+            <span
+              className={`flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-sm border ${
+                showOnlyStartDates
+                  ? "border-burgundy bg-burgundy text-white"
+                  : "border-gray-300 bg-white"
+              }`}
+            >
+              {showOnlyStartDates ? <IconCheck size={10} stroke={3} /> : null}
+            </span>
+            <span className="text-xs text-gray-600">Show only Start Dates</span>
+          </button>
+          <button
+            type="button"
+            onClick={onOpenAddCategory}
+            className="inline-flex shrink-0 items-center gap-1 rounded-md border border-gray-300 px-2 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50"
+          >
+            <IconPlus size={14} />
+            Add category
+          </button>
+        </div>
+      </div>
+    </aside>
+  );
+}
+
+function MonthEventChip({
+  event,
+  selected,
+  onSelect,
+}: {
+  event: EnrichedCalendarEvent;
+  selected?: boolean;
+  onSelect: () => void;
+}) {
+  const styles = getCategoryStyles(event.category);
+  const subtitle =
+    event.jobs?.name ??
+    (event.clientName !== "—" ? event.clientName : null);
+  const timeLabel = formatEventStartTime(event);
+
+  return (
+    <button
+      type="button"
+      onClick={onSelect}
+      className={`block w-full rounded-md px-1.5 py-1 text-left ${styles.bg} ${
+        selected ? "ring-2 ring-burgundy/40" : "hover:brightness-[0.98]"
+      }`}
+    >
+      <div className="flex items-start gap-1">
+        <span
+          className={`mt-1 h-1.5 w-1.5 shrink-0 rounded-full ${styles.dot}`}
+          aria-hidden
+        />
+        <div className="min-w-0 flex-1">
+          <p className={`truncate text-[11px] font-semibold leading-tight ${styles.text}`}>
+            {event.title}
+          </p>
+          {subtitle ? (
+            <p className={`truncate text-[10px] leading-snug ${styles.muted}`}>
+              {subtitle}
+            </p>
+          ) : null}
+          {timeLabel ? (
+            <p className={`text-[10px] leading-snug ${styles.muted}`}>{timeLabel}</p>
+          ) : null}
+        </div>
+      </div>
+    </button>
+  );
 }
 
 function EventBlock({
@@ -159,12 +422,68 @@ function AddEventButton({ onClick }: { onClick: () => void }) {
     <Button
       type="button"
       variant="primary"
-      className="inline-flex items-center gap-1.5"
+      className="inline-flex w-full items-center justify-center gap-1.5"
       onClick={onClick}
     >
-      Add
+      Add event
       <IconPlus size={16} />
     </Button>
+  );
+}
+
+function DatePreviewEventRow({
+  event,
+  selected,
+  onEdit,
+  onDelete,
+}: {
+  event: EnrichedCalendarEvent;
+  selected?: boolean;
+  onEdit: () => void;
+  onDelete: () => void;
+}) {
+  const styles = getCategoryStyles(event.category);
+  const Icon = eventIcon(event.category);
+
+  return (
+    <div
+      className={`group flex items-start gap-2 rounded-md border-l-4 px-2 py-1.5 ${styles.bg} ${styles.border} ${
+        selected ? "ring-2 ring-burgundy ring-offset-1" : ""
+      }`}
+    >
+      <div className="min-w-0 flex-1">
+        {!event.isAllDay && (
+          <p className={`text-[10px] font-medium ${styles.text}`}>
+            {formatTimeRange(event.startMinutes, event.endMinutes)}
+          </p>
+        )}
+        <p className={`text-xs font-semibold ${styles.text}`}>{event.taskName}</p>
+        {event.clientName !== "—" && (
+          <p className={`text-[10px] ${styles.text} opacity-80`}>
+            {event.clientName}
+          </p>
+        )}
+        <Icon size={14} className={`mt-0.5 ${styles.text} opacity-60`} />
+      </div>
+      <div className="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
+        <button
+          type="button"
+          onClick={onEdit}
+          className="rounded p-1.5 text-gray-500 hover:bg-white/80 hover:text-gray-800"
+          aria-label="Edit event"
+        >
+          <IconPencil size={16} />
+        </button>
+        <button
+          type="button"
+          onClick={onDelete}
+          className="rounded p-1.5 text-gray-500 hover:bg-white/80 hover:text-red-600"
+          aria-label="Delete event"
+        >
+          <IconTrash size={16} />
+        </button>
+      </div>
+    </div>
   );
 }
 
@@ -172,15 +491,17 @@ function DatePreviewModal({
   date,
   events,
   selectedEventId,
-  onSelectEvent,
   onAdd,
+  onEdit,
+  onDelete,
   onClose,
 }: {
   date: Date;
   events: EnrichedCalendarEvent[];
   selectedEventId: string | null;
-  onSelectEvent: (id: string) => void;
   onAdd: () => void;
+  onEdit: (event: EnrichedCalendarEvent) => void;
+  onDelete: (event: EnrichedCalendarEvent) => void;
   onClose: () => void;
 }) {
   const todayKey = formatDateKey(new Date());
@@ -240,14 +561,12 @@ function DatePreviewModal({
           {events.length > 0 ? (
             <div className="mb-6 space-y-2">
               {events.map((ev) => (
-                <EventBlock
+                <DatePreviewEventRow
                   key={ev.id}
                   event={ev}
                   selected={selectedEventId === ev.id}
-                  onSelect={() => {
-                    onSelectEvent(ev.id);
-                    onClose();
-                  }}
+                  onEdit={() => onEdit(ev)}
+                  onDelete={() => onDelete(ev)}
                 />
               ))}
             </div>
@@ -262,124 +581,6 @@ function DatePreviewModal({
         </div>
       </div>
     </div>
-  );
-}
-
-function EventDetailPanel({
-  event,
-  onEdit,
-  onDelete,
-}: {
-  event: EnrichedCalendarEvent | null;
-  onEdit: () => void;
-  onDelete: () => void;
-}) {
-  const [notes, setNotes] = useState("");
-
-  useEffect(() => {
-    setNotes("");
-  }, [event?.id]);
-
-  if (!event) {
-    return (
-      <aside className="flex h-full min-h-0 flex-col rounded-lg border border-gray-200 bg-white p-5">
-        <p className="text-sm text-gray-500">Select an event to view details.</p>
-      </aside>
-    );
-  }
-
-  const styles = getCategoryStyles(event.category);
-  const Icon = eventIcon(event.category);
-  const displayTitle =
-    event.clientName !== "—" ? event.clientName : event.taskName;
-
-  return (
-    <aside className="flex h-full min-h-0 flex-col rounded-lg border border-gray-200 bg-white">
-      <div className="flex-1 overflow-y-auto p-5">
-        <div className="mb-4 flex items-start gap-3">
-          <div
-            className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg ${styles.bg}`}
-          >
-            <Icon size={20} className={styles.text} />
-          </div>
-          <div className="min-w-0">
-            <h3 className="text-lg font-semibold text-gray-900">{displayTitle}</h3>
-            <p className="text-sm text-gray-500">{event.taskName}</p>
-          </div>
-        </div>
-
-        <dl className="space-y-3 text-sm">
-          <div>
-            <dt className="text-xs font-medium uppercase tracking-wide text-gray-400">
-              Date & Time
-            </dt>
-            <dd className="mt-0.5 text-gray-900">
-              {new Date(`${event.event_date}T12:00:00`).toLocaleDateString(
-                "en-US",
-                { weekday: "long", month: "long", day: "numeric" }
-              )}
-              {!event.isAllDay && (
-                <span className="block text-gray-600">
-                  {formatTimeRange(event.startMinutes, event.endMinutes)}
-                </span>
-              )}
-            </dd>
-          </div>
-
-          {event.jobNumber && (
-            <div>
-              <dt className="text-xs font-medium uppercase tracking-wide text-gray-400">
-                Job
-              </dt>
-              <dd className="mt-0.5">
-                {event.job_id ? (
-                  <Link
-                    href={`/jobs/${event.job_id}`}
-                    className="font-medium text-burgundy hover:underline"
-                  >
-                    {event.jobNumber}
-                  </Link>
-                ) : (
-                  <span className="text-gray-900">{event.jobNumber}</span>
-                )}
-              </dd>
-            </div>
-          )}
-
-        </dl>
-
-        <div className="mt-5">
-          <label className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-gray-400">
-            Notes
-          </label>
-          <textarea
-            value={notes}
-            onChange={(e) => setNotes(e.target.value)}
-            rows={3}
-            placeholder="Add notes..."
-            className="w-full rounded-md border border-gray-200 px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 focus:border-burgundy focus:outline-none focus:ring-1 focus:ring-burgundy"
-          />
-        </div>
-      </div>
-
-      <div className="flex items-center gap-2 border-t border-gray-100 p-4">
-        <button
-          type="button"
-          onClick={onEdit}
-          className="flex-1 rounded-md bg-burgundy px-4 py-2 text-sm font-medium text-white hover:bg-burgundy/90"
-        >
-          Edit Event
-        </button>
-        <button
-          type="button"
-          onClick={onDelete}
-          className="rounded-md border border-red-200 p-2 text-red-600 hover:bg-red-50"
-          aria-label="Delete event"
-        >
-          <IconTrash size={18} />
-        </button>
-      </div>
-    </aside>
   );
 }
 
@@ -403,7 +604,21 @@ export default function CalendarPage() {
   const [attachedFile, setAttachedFile] = useState<File | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [categoryFilters, setCategoryFilters] = useState(defaultCategoryFilters);
+  const [customCategories, setCustomCategories] = useState<CustomCalendarCategory[]>(
+    []
+  );
+  const [customCategoryFilters, setCustomCategoryFilters] = useState<
+    Record<string, boolean>
+  >({});
+  const [showOnlyStartDates, setShowOnlyStartDates] = useState(false);
+  const [showAddCategoryModal, setShowAddCategoryModal] = useState(false);
+  const [addCategoryName, setAddCategoryName] = useState("");
+  const [addCategoryColor, setAddCategoryColor] = useState<string>(
+    CALENDAR_COLOR_PALETTE[0]
+  );
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const loadSeq = useRef(0);
 
   function resetAttachment() {
     setAttachedFile(null);
@@ -417,26 +632,41 @@ export default function CalendarPage() {
   const focusKey = formatDateKey(focusDate);
 
   const load = useCallback(async () => {
+    const seq = ++loadSeq.current;
     const supabase = createClient();
-    const rangeStart = formatDateKey(addDays(weekStart, -7));
-    const rangeEnd = formatDateKey(addDays(weekStart, 37));
+    const monthStart = new Date(focusDate.getFullYear(), focusDate.getMonth(), 1);
+    const monthEnd = new Date(
+      focusDate.getFullYear(),
+      focusDate.getMonth() + 1,
+      0
+    );
+    const rangeStart = formatDateKey(addDays(monthStart, -7));
+    const rangeEnd = formatDateKey(addDays(monthEnd, 14));
 
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from("calendar_events")
       .select("*, jobs(id, name, created_at, contacts(name))")
       .gte("event_date", rangeStart)
       .lte("event_date", rangeEnd)
       .order("event_date");
 
+    if (seq !== loadSeq.current) return;
+
+    if (error) {
+      console.error("Failed to load calendar events:", error.message);
+      setLoading(false);
+      return;
+    }
+
     const enriched = ((data as CalendarEvent[]) ?? []).map((e, i) =>
       enrichCalendarEvent(e, i)
     );
     setEvents(enriched);
     setLoading(false);
-  }, [weekStart]);
+  }, [focusDate]);
 
   useEffect(() => {
-    load();
+    void load();
   }, [load]);
 
   useEffect(() => {
@@ -479,9 +709,15 @@ export default function CalendarPage() {
     [events, calendarScope, currentUserId]
   );
 
+  const filteredEvents = useMemo(
+    () =>
+      visibleEvents.filter((event) => eventMatchesFilters(event, categoryFilters)),
+    [visibleEvents, categoryFilters]
+  );
+
   const eventsByDay = useMemo(() => {
     const map = new Map<string, EnrichedCalendarEvent[]>();
-    for (const event of visibleEvents) {
+    for (const event of filteredEvents) {
       if (!map.has(event.event_date)) map.set(event.event_date, []);
       map.get(event.event_date)!.push(event);
     }
@@ -489,7 +725,7 @@ export default function CalendarPage() {
       list.sort((a, b) => a.startMinutes - b.startMinutes);
     }
     return map;
-  }, [visibleEvents]);
+  }, [filteredEvents]);
 
   const dayEvents = useMemo(
     () => eventsByDay.get(focusKey) ?? [],
@@ -504,8 +740,41 @@ export default function CalendarPage() {
     });
   }, [focusKey, dayEvents]);
 
-  const selectedEvent =
-    visibleEvents.find((e) => e.id === selectedEventId) ?? null;
+  function toggleCategoryFilter(category: CalendarCategory) {
+    setCategoryFilters((prev) => ({
+      ...prev,
+      [category]: !prev[category],
+    }));
+  }
+
+  function toggleCustomCategoryFilter(categoryId: string) {
+    setCustomCategoryFilters((prev) => ({
+      ...prev,
+      [categoryId]: !(prev[categoryId] ?? true),
+    }));
+  }
+
+  function openAddCategoryModal() {
+    setAddCategoryName("");
+    setAddCategoryColor(CALENDAR_COLOR_PALETTE[0]);
+    setShowAddCategoryModal(true);
+  }
+
+  function handleCreateCategory() {
+    const label = addCategoryName.trim();
+    if (!label) return;
+
+    const id =
+      typeof crypto !== "undefined" && "randomUUID" in crypto
+        ? crypto.randomUUID()
+        : `custom-${Date.now()}`;
+
+    setCustomCategories((prev) => [...prev, { id, label, color: addCategoryColor }]);
+    setCustomCategoryFilters((prev) => ({ ...prev, [id]: true }));
+    setShowAddCategoryModal(false);
+    setAddCategoryName("");
+    setAddCategoryColor(CALENDAR_COLOR_PALETTE[0]);
+  }
 
   const currentTimePercent =
     focusKey === todayKey ? getCurrentTimePercent(now) : null;
@@ -549,24 +818,32 @@ export default function CalendarPage() {
     setShowModal(true);
   }
 
-  function openEditModal() {
-    if (!selectedEvent) return;
+  function openEditModal(event: EnrichedCalendarEvent) {
     resetAttachment();
     setSaveError(null);
-    setEditingEvent(selectedEvent);
+    setEditingEvent(event);
     setForm({
-      title: selectedEvent.title,
-      event_type: selectedEvent.event_type,
-      event_date: selectedEvent.event_date,
-      end_date: selectedEvent.event_date,
-      start_time: toTimeInputValue(selectedEvent.start_time),
-      end_time: toTimeInputValue(selectedEvent.end_time),
-      job_id: selectedEvent.job_id ?? "",
-      is_all_day: selectedEvent.is_all_day ?? false,
-      location: selectedEvent.location ?? "",
-      description: selectedEvent.description ?? "",
+      title: event.title,
+      event_type: event.event_type,
+      event_date: event.event_date,
+      end_date: event.event_date,
+      start_time: toTimeInputValue(event.start_time),
+      end_time: toTimeInputValue(event.end_time),
+      job_id: event.job_id ?? "",
+      is_all_day: event.is_all_day ?? false,
+      location: event.location ?? "",
+      description: event.description ?? "",
     });
+    setPreviewDate(null);
     setShowModal(true);
+  }
+
+  async function handleDeleteEvent(event: EnrichedCalendarEvent) {
+    const supabase = createClient();
+    await supabase.from("calendar_events").delete().eq("id", event.id);
+    setEvents((prev) => prev.filter((ev) => ev.id !== event.id));
+    setSelectedEventId((current) => (current === event.id ? null : current));
+    void load();
   }
 
   function updateEventDate(dateKey: string) {
@@ -607,8 +884,13 @@ export default function CalendarPage() {
       end_time: form.is_all_day ? null : form.end_time,
       location: form.location.trim() || null,
       description: form.description.trim() || null,
-      user_id: editingEvent?.user_id ?? user.id,
-      calendar_scope: editingEvent?.calendar_scope ?? calendarScope,
+      // Always stamp scope from the active calendar tab.
+      // Personal events must be owned by the signed-in user.
+      user_id:
+        calendarScope === "personal"
+          ? user.id
+          : (editingEvent?.user_id ?? user.id),
+      calendar_scope: calendarScope,
     };
 
     async function persist(nextPayload: Record<string, unknown>) {
@@ -627,11 +909,10 @@ export default function CalendarPage() {
         .single();
     }
 
+    // Never strip user_id / calendar_scope — privacy depends on them.
     const optionalFields = [
       "description",
       "location",
-      "calendar_scope",
-      "user_id",
       "end_time",
       "start_time",
       "is_all_day",
@@ -640,7 +921,7 @@ export default function CalendarPage() {
     let workingPayload = { ...payload };
     let { data, error } = await persist(workingPayload);
 
-    // Strip unknown columns one-by-one if the live DB is behind migrations.
+    // Strip unknown optional columns one-by-one if the live DB is behind migrations.
     for (let attempt = 0; attempt < optionalFields.length && error; attempt++) {
       const missing =
         error.message.match(/'([^']+)' column/i)?.[1] ??
@@ -648,6 +929,7 @@ export default function CalendarPage() {
           error!.message.toLowerCase().includes(field)
         );
       if (!missing || !(missing in workingPayload)) break;
+      if (missing === "user_id" || missing === "calendar_scope") break;
       const { [missing]: _removed, ...rest } = workingPayload;
       workingPayload = rest;
       ({ data, error } = await persist(workingPayload));
@@ -656,14 +938,40 @@ export default function CalendarPage() {
     setSaving(false);
 
     if (error || !data) {
+      const privacyMissing =
+        error?.message?.toLowerCase().includes("user_id") ||
+        error?.message?.toLowerCase().includes("calendar_scope");
       setSaveError(
-        error?.message ??
-          "Could not save event. Your database may be missing calendar columns — run the calendar setup SQL in Supabase."
+        privacyMissing
+          ? "Personal calendar privacy columns are missing. Run 20260727000004_calendar_events_full_setup.sql in the Supabase SQL Editor, then try again."
+          : (error?.message ??
+            "Could not save event. Your database may be missing calendar columns — run the calendar setup SQL in Supabase.")
       );
       return;
     }
 
-    const saved = enrichCalendarEvent(data as CalendarEvent, events.length);
+    const savedRow = data as CalendarEvent;
+    // Refuse to keep a personal event that did not persist as personal/owned.
+    if (
+      calendarScope === "personal" &&
+      (savedRow.calendar_scope !== "personal" || savedRow.user_id !== user.id)
+    ) {
+      setSaveError(
+        "Personal event could not be saved privately. Run the calendar privacy SQL in Supabase, then try again."
+      );
+      // Best-effort cleanup so it doesn't linger as a public production event.
+      await supabase.from("calendar_events").delete().eq("id", savedRow.id);
+      return;
+    }
+
+    const saved = enrichCalendarEvent(
+      {
+        ...savedRow,
+        calendar_scope: savedRow.calendar_scope ?? calendarScope,
+        user_id: savedRow.user_id ?? user.id,
+      },
+      events.length
+    );
     setEvents((prev) => {
       const without = prev.filter((ev) => ev.id !== saved.id);
       return [...without, saved].sort((a, b) =>
@@ -675,26 +983,14 @@ export default function CalendarPage() {
     setShowModal(false);
     setEditingEvent(null);
     resetAttachment();
-    load();
-  }
-
-  async function handleDelete() {
-    if (!selectedEvent) return;
-    const supabase = createClient();
-    await supabase.from("calendar_events").delete().eq("id", selectedEvent.id);
-    setSelectedEventId(null);
-    load();
+    // Refresh in the background; stale responses are ignored via loadSeq.
+    void     load();
   }
 
   const monthDate = focusDate;
-  const miniMonth = monthDate.getMonth();
-  const miniYear = monthDate.getFullYear();
-  const miniFirstDay = new Date(miniYear, miniMonth, 1).getDay();
-  const miniDaysInMonth = new Date(miniYear, miniMonth + 1, 0).getDate();
-  const miniCells: (number | null)[] = [
-    ...Array(miniFirstDay === 0 ? 6 : miniFirstDay - 1).fill(null),
-    ...Array.from({ length: miniDaysInMonth }, (_, i) => i + 1),
-  ];
+  const monthGrid = useMemo(() => buildMonthGrid(monthDate), [monthDate]);
+  const displayMonth = monthDate.getMonth();
+  const displayYear = monthDate.getFullYear();
 
   const calendarHeaderLabel =
     viewMode === "day"
@@ -743,7 +1039,7 @@ export default function CalendarPage() {
                     value={viewMode}
                     onChange={(e) => setViewMode(e.target.value as ViewMode)}
                     aria-label="Calendar view"
-                    className={`${SELECT_CLASS} px-3 py-1.5 capitalize text-gray-900 focus:border-burgundy focus:outline-none focus:ring-1 focus:ring-burgundy`}
+                    className={`${SELECT_CLASS} h-9 px-3 py-0 capitalize leading-9 text-gray-900 focus:border-burgundy focus:outline-none focus:ring-1 focus:ring-burgundy`}
                   >
                     {(["day", "week", "month"] as const).map((mode) => (
                       <option key={mode} value={mode}>
@@ -753,39 +1049,28 @@ export default function CalendarPage() {
                   </select>
                   <SelectChevron />
                 </div>
-                <div className="grid grid-cols-[2.25rem_24rem_2.25rem] items-center">
+                <div className="flex items-center justify-center gap-2">
                   <button
                     type="button"
                     onClick={() => shiftDate(-1)}
-                    className="translate-x-[0.75in] justify-self-end rounded-md border border-gray-300 p-1.5 hover:bg-gray-50"
+                    className="rounded-md border border-gray-300 p-1.5 hover:bg-gray-50"
                     aria-label="Previous"
                   >
                     <IconChevronLeft size={18} />
                   </button>
-                  <h2 className="truncate text-center text-sm font-semibold text-gray-900">
+                  <h2 className="min-w-[10rem] truncate text-center text-sm font-semibold text-gray-900">
                     {calendarHeaderLabel}
                   </h2>
                   <button
                     type="button"
                     onClick={() => shiftDate(1)}
-                    className="-translate-x-[0.75in] justify-self-start rounded-md border border-gray-300 p-1.5 hover:bg-gray-50"
+                    className="rounded-md border border-gray-300 p-1.5 hover:bg-gray-50"
                     aria-label="Next"
                   >
                     <IconChevronRight size={18} />
                   </button>
                 </div>
-                <div className="flex items-center justify-self-end gap-2">
-                  <AddEventButton onClick={() => openCreateModal()} />
-                  {SHOW_CALENDAR_CHROME && (
-                    <button
-                      type="button"
-                      className="inline-flex items-center gap-1.5 rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50"
-                    >
-                      <IconFilter size={16} />
-                      Filter
-                    </button>
-                  )}
-                </div>
+                <div aria-hidden />
               </div>
 
               {viewMode === "day" ? (
@@ -950,65 +1235,74 @@ export default function CalendarPage() {
               </div>
               </div>
               ) : (
-              <div className="flex min-h-0 flex-1 flex-col overflow-hidden p-4">
-              <div className="grid shrink-0 grid-cols-7 gap-1 text-center text-xs text-gray-500">
-                {DAY_HEADERS.map((d) => (
-                  <div key={d} className="py-1 font-medium">
-                    {d}
-                  </div>
-                ))}
-              </div>
-              <div className="grid min-h-0 flex-1 grid-cols-7 auto-rows-fr gap-1 pt-1">
-                {miniCells.map((day, i) => {
-                  if (!day) return <div key={`empty-${i}`} />;
-                  const dateStr = `${miniYear}-${String(miniMonth + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
-                  const dayEvts = eventsByDay.get(dateStr) ?? [];
-                  const isToday =
-                    day === new Date().getDate() &&
-                    miniMonth === new Date().getMonth() &&
-                    miniYear === new Date().getFullYear();
-                  return (
-                    <button
-                      key={dateStr}
-                      type="button"
-                      onClick={() =>
-                        openDatePreview(new Date(`${dateStr}T12:00:00`))
-                      }
-                      className={`flex h-full min-h-0 flex-col rounded border p-1 text-left ${
-                        isToday
-                          ? "border-burgundy bg-burgundy/5"
-                          : "border-gray-100 hover:bg-gray-50"
-                      }`}
+              <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+                <div className="grid shrink-0 grid-cols-7 border-b border-gray-200 bg-gray-50">
+                  {MONTH_DAY_HEADERS.map((d) => (
+                    <div
+                      key={d}
+                      className="border-r border-gray-200 py-2.5 text-center text-xs font-semibold uppercase tracking-wide text-gray-500 last:border-r-0"
                     >
-                      <span
-                        className={`text-xs font-medium ${
-                          isToday ? "text-burgundy" : "text-gray-700"
-                        }`}
+                      {d}
+                    </div>
+                  ))}
+                </div>
+                <div className="grid min-h-0 flex-1 grid-cols-7 grid-rows-6">
+                  {monthGrid.map((day) => {
+                    const dateStr = formatDateKey(day);
+                    const dayEvts = eventsByDay.get(dateStr) ?? [];
+                    const inMonth =
+                      day.getMonth() === displayMonth &&
+                      day.getFullYear() === displayYear;
+                    const isToday = dateStr === todayKey;
+                    const visibleEvts = dayEvts.slice(0, 2);
+                    const extra = dayEvts.length - visibleEvts.length;
+
+                    return (
+                      <div
+                        key={dateStr}
+                        role="button"
+                        tabIndex={0}
+                        onClick={() => openDatePreview(day)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" || e.key === " ") {
+                            e.preventDefault();
+                            openDatePreview(day);
+                          }
+                        }}
+                        className="flex min-h-0 cursor-pointer flex-col border-b border-r border-gray-200 bg-white text-left hover:bg-gray-50/80 last:border-r-0 [&:nth-child(7n)]:border-r-0"
                       >
-                        {day}
-                      </span>
-                      <div className="mt-0.5 space-y-0.5">
-                        {dayEvts.slice(0, 2).map((ev) => {
-                          const s = getCategoryStyles(ev.category);
-                          return (
-                            <div
+                        <div className="flex shrink-0 items-start p-1.5 pb-1">
+                          <span
+                            className={`inline-flex h-6 min-w-[1.5rem] items-center justify-center rounded-full px-1 text-sm font-medium ${
+                              isToday
+                                ? "bg-burgundy text-white"
+                                : inMonth
+                                  ? "text-gray-900"
+                                  : "text-gray-300"
+                            }`}
+                          >
+                            {day.getDate()}
+                          </span>
+                        </div>
+                        <div className="min-h-0 flex-1 space-y-0.5 overflow-hidden px-1 pb-1.5">
+                          {visibleEvts.map((ev) => (
+                            <MonthEventChip
                               key={ev.id}
-                              className={`truncate rounded px-1 text-[9px] ${s.bg} ${s.text}`}
-                            >
-                              {ev.taskName}
-                            </div>
-                          );
-                        })}
-                        {dayEvts.length > 2 && (
-                          <p className="text-[9px] text-gray-400">
-                            +{dayEvts.length - 2} more
-                          </p>
-                        )}
+                              event={ev}
+                              selected={selectedEventId === ev.id}
+                              onSelect={() => openDatePreview(day)}
+                            />
+                          ))}
+                          {extra > 0 ? (
+                            <span className="block w-full px-1 text-left text-[10px] font-medium text-gray-500">
+                              +{extra} more
+                            </span>
+                          ) : null}
+                        </div>
                       </div>
-                    </button>
-                  );
-                })}
-              </div>
+                    );
+                  })}
+                </div>
               </div>
               )}
             </div>
@@ -1022,23 +1316,39 @@ export default function CalendarPage() {
             onSelectDate={openDatePreview}
             onShiftMonth={shiftMonth}
           />
-          <div className="flex min-h-0 flex-1 flex-col">
-            <EventDetailPanel
-              event={selectedEvent}
-              onEdit={openEditModal}
-              onDelete={handleDelete}
-            />
-          </div>
+          <AddEventButton onClick={() => openCreateModal()} />
+          <CalendarToolsPanel
+            filters={categoryFilters}
+            customCategories={customCategories}
+            customFilters={customCategoryFilters}
+            onToggle={toggleCategoryFilter}
+            onToggleCustom={toggleCustomCategoryFilter}
+            showOnlyStartDates={showOnlyStartDates}
+            onToggleStartDates={() => setShowOnlyStartDates((prev) => !prev)}
+            onOpenAddCategory={openAddCategoryModal}
+          />
         </div>
       </div>
+
+      {showAddCategoryModal && (
+        <AddCategoryModal
+          name={addCategoryName}
+          color={addCategoryColor}
+          onNameChange={setAddCategoryName}
+          onColorChange={setAddCategoryColor}
+          onClose={() => setShowAddCategoryModal(false)}
+          onCreate={handleCreateCategory}
+        />
+      )}
 
       {previewDate && (
         <DatePreviewModal
           date={previewDate}
           events={eventsByDay.get(formatDateKey(previewDate)) ?? []}
           selectedEventId={selectedEventId}
-          onSelectEvent={setSelectedEventId}
           onAdd={() => openCreateModal(previewDate)}
+          onEdit={openEditModal}
+          onDelete={handleDeleteEvent}
           onClose={() => setPreviewDate(null)}
         />
       )}
@@ -1087,12 +1397,13 @@ export default function CalendarPage() {
                       }
                       className={`${SELECT_CLASS} w-full px-3 py-1.5`}
                     >
+                      <option value="drafting">Drafting</option>
                       <option value="production">Production</option>
                       <option value="delivery">Delivery</option>
-                      <option value="installation">Installation</option>
-                      <option value="quote">Quote / Deadline</option>
-                      <option value="personal">Personal</option>
-                      <option value="other">Other</option>
+                      <option value="shop_closed">Shop closed</option>
+                      {calendarScope === "personal" ? (
+                        <option value="personal">Personal</option>
+                      ) : null}
                     </select>
                     <SelectChevron />
                   </div>

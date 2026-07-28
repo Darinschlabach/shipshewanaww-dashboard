@@ -31,6 +31,8 @@ CREATE INDEX IF NOT EXISTS calendar_events_user_id_idx
 CREATE INDEX IF NOT EXISTS calendar_events_scope_idx
   ON calendar_events (calendar_scope);
 
+ALTER TABLE calendar_events ENABLE ROW LEVEL SECURITY;
+
 DROP POLICY IF EXISTS "auth_all" ON calendar_events;
 
 DROP POLICY IF EXISTS "calendar_events_select" ON calendar_events;
@@ -42,27 +44,50 @@ CREATE POLICY "calendar_events_select" ON calendar_events
   FOR SELECT TO authenticated
   USING (
     calendar_scope = 'production'
-    OR user_id = auth.uid()
+    OR (
+      calendar_scope = 'personal'
+      AND user_id IS NOT NULL
+      AND user_id = auth.uid()
+    )
   );
 
 CREATE POLICY "calendar_events_insert" ON calendar_events
   FOR INSERT TO authenticated
-  WITH CHECK (user_id = auth.uid());
+  WITH CHECK (
+    user_id = auth.uid()
+    AND (
+      calendar_scope = 'production'
+      OR (
+        calendar_scope = 'personal'
+        AND user_id = auth.uid()
+      )
+    )
+  );
 
 CREATE POLICY "calendar_events_update" ON calendar_events
   FOR UPDATE TO authenticated
   USING (
     calendar_scope = 'production'
-    OR user_id = auth.uid()
+    OR (
+      calendar_scope = 'personal'
+      AND user_id = auth.uid()
+    )
   )
   WITH CHECK (
     calendar_scope = 'production'
-    OR user_id = auth.uid()
+    OR (
+      calendar_scope = 'personal'
+      AND user_id IS NOT NULL
+      AND user_id = auth.uid()
+    )
   );
 
 CREATE POLICY "calendar_events_delete" ON calendar_events
   FOR DELETE TO authenticated
   USING (
     calendar_scope = 'production'
-    OR user_id = auth.uid()
+    OR (
+      calendar_scope = 'personal'
+      AND user_id = auth.uid()
+    )
   );
