@@ -5,7 +5,8 @@ export type CalendarCategory =
   | "drafting"
   | "production"
   | "deliveries"
-  | "shop_closed";
+  | "shop_closed"
+  | "meetings";
 
 export const CALENDAR_CATEGORIES: {
   id: CalendarCategory;
@@ -42,6 +43,35 @@ export const CALENDAR_CATEGORIES: {
     text: "text-green-900",
     dot: "bg-green-500",
     muted: "text-green-800/80",
+  },
+  {
+    id: "shop_closed",
+    label: "Shop closed",
+    bg: "bg-gray-100",
+    border: "border-l-gray-400",
+    text: "text-gray-800",
+    dot: "bg-gray-400",
+    muted: "text-gray-600",
+  },
+];
+
+export const PERSONAL_CALENDAR_CATEGORIES: {
+  id: Extract<CalendarCategory, "meetings" | "shop_closed">;
+  label: string;
+  bg: string;
+  border: string;
+  text: string;
+  dot: string;
+  muted: string;
+}[] = [
+  {
+    id: "meetings",
+    label: "Meetings",
+    bg: "bg-red-50",
+    border: "border-l-red-500",
+    text: "text-red-900",
+    dot: "bg-red-500",
+    muted: "text-red-800/80",
   },
   {
     id: "shop_closed",
@@ -92,19 +122,43 @@ export const MONTH_DAY_HEADERS = [
   "Sat",
 ] as const;
 
-/** Six-week grid starting on Sunday, including adjacent-month days. */
-export function buildMonthGrid(monthDate: Date): Date[] {
+/** Five-week month grid (Sunday start). When a 6th week would be needed
+ * for in-month days, those overflow dates fold into week 5 as `overflowDate`. */
+export type MonthGridCell = {
+  date: Date;
+  overflowDate?: Date;
+};
+
+export function buildMonthGrid(monthDate: Date): MonthGridCell[] {
   const year = monthDate.getFullYear();
   const month = monthDate.getMonth();
   const firstOfMonth = new Date(year, month, 1, 12, 0, 0, 0);
   const gridStart = new Date(firstOfMonth);
   gridStart.setDate(firstOfMonth.getDate() - firstOfMonth.getDay());
 
-  return Array.from({ length: 42 }, (_, index) => {
+  const fullGrid = Array.from({ length: 42 }, (_, index) => {
     const day = new Date(gridStart);
     day.setDate(gridStart.getDate() + index);
     return day;
   });
+
+  const week6 = fullGrid.slice(35, 42);
+  const overflowInMonth = week6.filter(
+    (day) => day.getMonth() === month && day.getFullYear() === year
+  );
+
+  const cells: MonthGridCell[] = fullGrid.slice(0, 35).map((date) => ({ date }));
+
+  for (const overflow of overflowInMonth) {
+    const weekday = overflow.getDay();
+    const week5Index = 28 + weekday;
+    cells[week5Index] = {
+      ...cells[week5Index],
+      overflowDate: overflow,
+    };
+  }
+
+  return cells;
 }
 
 const CATEGORY_MAP: Record<string, CalendarCategory> = {
@@ -118,6 +172,13 @@ const CATEGORY_MAP: Record<string, CalendarCategory> = {
   personal: "drafting",
   other: "production",
 };
+
+const ALL_CALENDAR_CATEGORIES = [
+  ...CALENDAR_CATEGORIES,
+  ...PERSONAL_CALENDAR_CATEGORIES.filter(
+    (category) => !CALENDAR_CATEGORIES.some((builtIn) => builtIn.id === category.id)
+  ),
+];
 
 export type EnrichedCalendarEvent = CalendarEvent & {
   category: CalendarCategory;
@@ -138,14 +199,20 @@ export function formatEventStartTime(
 }
 
 export function getEventCategory(
-  eventType: CalendarEventType | string
+  eventType: CalendarEventType | string,
+  calendarScope?: string | null
 ): CalendarCategory {
-  return CATEGORY_MAP[eventType] ?? "other";
+  if (calendarScope === "personal") {
+    if (eventType === "shop_closed") return "shop_closed";
+    return "meetings";
+  }
+  return CATEGORY_MAP[eventType] ?? "production";
 }
 
 export function getCategoryStyles(category: CalendarCategory) {
   return (
-    CALENDAR_CATEGORIES.find((c) => c.id === category) ?? CALENDAR_CATEGORIES[1]
+    ALL_CALENDAR_CATEGORIES.find((c) => c.id === category) ??
+    CALENDAR_CATEGORIES[1]
   );
 }
 
@@ -153,6 +220,16 @@ export function defaultCategoryFilters(): Record<CalendarCategory, boolean> {
   return Object.fromEntries(
     CALENDAR_CATEGORIES.map((category) => [category.id, true])
   ) as Record<CalendarCategory, boolean>;
+}
+
+export function defaultPersonalCategoryFilters(): Record<
+  Extract<CalendarCategory, "meetings" | "shop_closed">,
+  boolean
+> {
+  return {
+    meetings: true,
+    shop_closed: true,
+  };
 }
 
 export function startOfWeek(date: Date): Date {
@@ -278,7 +355,7 @@ export function enrichCalendarEvent(
   },
   index: number
 ): EnrichedCalendarEvent {
-  const category = getEventCategory(event.event_type);
+  const category = getEventCategory(event.event_type, event.calendar_scope);
   const timing = deriveTiming(event, index);
   const job = event.jobs;
   const clientName =
@@ -366,9 +443,9 @@ export function getBusyDaysThisMonth(
 
 export function eventMatchesFilters(
   event: EnrichedCalendarEvent,
-  filters: Record<CalendarCategory, boolean>
+  filters: Partial<Record<CalendarCategory, boolean>>
 ): boolean {
-  return filters[event.category];
+  return filters[event.category] ?? true;
 }
 
 export const GRID_START_MINUTES = 7 * 60;

@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   IconAdjustmentsHorizontal,
+  IconArrowsMaximize,
+  IconArrowsMinimize,
   IconCalendar,
   IconCheck,
   IconChevronDown,
@@ -30,9 +32,11 @@ import {
   CALENDAR_CATEGORIES,
   CALENDAR_COLOR_PALETTE,
   defaultCategoryFilters,
+  defaultPersonalCategoryFilters,
   enrichCalendarEvent,
   eventMatchesFilters,
   filterByCalendarTab,
+  PERSONAL_CALENDAR_CATEGORIES,
   formatDateKey,
   formatEventStartTime,
   formatFullDate,
@@ -53,6 +57,17 @@ import type { CalendarEvent, CalendarEventType } from "@/lib/types";
 
 type ViewMode = "day" | "week" | "month";
 type CalendarScope = "production" | "personal";
+
+/** When the live DB enum is behind migrations, save with a legacy type that maps to the same category. */
+const EVENT_TYPE_ENUM_FALLBACK: Partial<
+  Record<CalendarEventType, CalendarEventType>
+> = {
+  drafting: "quote",
+  shop_closed: "other",
+};
+
+const CALENDAR_ENUM_SETUP_SQL =
+  "ALTER TYPE calendar_event_type ADD VALUE IF NOT EXISTS 'drafting'; ALTER TYPE calendar_event_type ADD VALUE IF NOT EXISTS 'shop_closed';";
 
 /** Set to true when ready to show Day/Week/Month + Add/Filter controls again. */
 const SHOW_CALENDAR_CHROME = false;
@@ -118,6 +133,8 @@ function eventIcon(category: EnrichedCalendarEvent["category"]) {
       return IconTruck;
     case "drafting":
       return IconUser;
+    case "meetings":
+      return IconCalendar;
     case "shop_closed":
       return IconHome;
     default:
@@ -131,37 +148,51 @@ function CategoryCheckboxRow({
   dotClassName,
   dotColor,
   onToggle,
+  onDelete,
 }: {
   label: string;
   checked: boolean;
   dotClassName?: string;
   dotColor?: string;
   onToggle: () => void;
+  onDelete?: () => void;
 }) {
   return (
-    <button
-      type="button"
-      onClick={onToggle}
-      className="flex w-full items-center gap-3 text-left"
-    >
-      <span
-        className={`flex h-5 w-5 shrink-0 items-center justify-center rounded border ${
-          checked && dotClassName
-            ? `${dotClassName} border-transparent text-white`
-            : checked
-              ? "border-transparent text-white"
-              : "border-gray-300 bg-white"
-        }`}
-        style={
-          checked && dotColor
-            ? { backgroundColor: dotColor, borderColor: dotColor }
-            : undefined
-        }
+    <div className="group flex items-center gap-1">
+      <button
+        type="button"
+        onClick={onToggle}
+        className="flex min-w-0 flex-1 items-center gap-3 text-left"
       >
-        {checked ? <IconCheck size={14} stroke={3} /> : null}
-      </span>
-      <span className="text-sm font-medium text-gray-900">{label}</span>
-    </button>
+        <span
+          className={`flex h-5 w-5 shrink-0 items-center justify-center rounded border ${
+            checked && dotClassName
+              ? `${dotClassName} border-transparent text-white`
+              : checked
+                ? "border-transparent text-white"
+                : "border-gray-300 bg-white"
+          }`}
+          style={
+            checked && dotColor
+              ? { backgroundColor: dotColor, borderColor: dotColor }
+              : undefined
+          }
+        >
+          {checked ? <IconCheck size={14} stroke={3} /> : null}
+        </span>
+        <span className="truncate text-sm font-medium text-gray-900">{label}</span>
+      </button>
+      {onDelete ? (
+        <button
+          type="button"
+          onClick={onDelete}
+          className="shrink-0 rounded p-1 text-gray-400 opacity-0 transition-opacity hover:bg-gray-100 hover:text-red-600 group-hover:opacity-100"
+          aria-label={`Delete ${label} category`}
+        >
+          <IconTrash size={14} />
+        </button>
+      ) : null}
+    </div>
   );
 }
 
@@ -242,24 +273,31 @@ function AddCategoryModal({
 }
 
 function CalendarToolsPanel({
+  scope,
   filters,
   customCategories,
   customFilters,
   onToggle,
   onToggleCustom,
+  onDeleteCustom,
   showOnlyStartDates,
   onToggleStartDates,
   onOpenAddCategory,
 }: {
-  filters: Record<CalendarCategory, boolean>;
+  scope: CalendarScope;
+  filters: Partial<Record<CalendarCategory, boolean>>;
   customCategories: CustomCalendarCategory[];
   customFilters: Record<string, boolean>;
   onToggle: (category: CalendarCategory) => void;
   onToggleCustom: (categoryId: string) => void;
+  onDeleteCustom: (categoryId: string) => void;
   showOnlyStartDates: boolean;
   onToggleStartDates: () => void;
   onOpenAddCategory: () => void;
 }) {
+  const builtInCategories =
+    scope === "personal" ? PERSONAL_CALENDAR_CATEGORIES : CALENDAR_CATEGORIES;
+
   return (
     <aside className="flex min-h-0 flex-1 flex-col rounded-lg border border-gray-200 bg-white">
       <div className="flex shrink-0 items-center gap-2 px-5 py-3">
@@ -272,13 +310,13 @@ function CalendarToolsPanel({
       </div>
       <div className="min-h-0 flex-1" aria-hidden />
       <div className="shrink-0 border-t border-gray-100 p-5">
-        <div className="flex gap-4">
+        <div className="flex min-h-[7.25rem] items-start gap-4">
           <ul className="min-w-0 flex-1 space-y-3">
-            {CALENDAR_CATEGORIES.map((category) => (
+            {builtInCategories.map((category) => (
               <li key={category.id}>
                 <CategoryCheckboxRow
                   label={category.label}
-                  checked={filters[category.id]}
+                  checked={filters[category.id] ?? true}
                   dotClassName={category.dot}
                   onToggle={() => onToggle(category.id)}
                 />
@@ -294,6 +332,7 @@ function CalendarToolsPanel({
                     checked={customFilters[category.id] ?? true}
                     dotColor={category.color}
                     onToggle={() => onToggleCustom(category.id)}
+                    onDelete={() => onDeleteCustom(category.id)}
                   />
                 </li>
               ))}
@@ -331,6 +370,11 @@ function CalendarToolsPanel({
   );
 }
 
+function splitDayNumberClass(inMonth: boolean, isToday: boolean) {
+  if (isToday) return "rounded-full bg-burgundy px-1 text-white";
+  return inMonth ? "text-gray-900" : "text-gray-300";
+}
+
 function MonthEventChip({
   event,
   selected,
@@ -341,37 +385,34 @@ function MonthEventChip({
   onSelect: () => void;
 }) {
   const styles = getCategoryStyles(event.category);
-  const subtitle =
-    event.jobs?.name ??
-    (event.clientName !== "—" ? event.clientName : null);
   const timeLabel = formatEventStartTime(event);
 
   return (
     <button
       type="button"
-      onClick={onSelect}
-      className={`block w-full rounded-md px-1.5 py-1 text-left ${styles.bg} ${
-        selected ? "ring-2 ring-burgundy/40" : "hover:brightness-[0.98]"
+      onClick={(e) => {
+        e.stopPropagation();
+        onSelect();
+      }}
+      className={`pointer-events-auto block w-full rounded px-1 py-[5px] text-left ${styles.bg} ${
+        selected ? "ring-1 ring-burgundy/40 ring-inset" : "hover:brightness-[0.98]"
       }`}
     >
-      <div className="flex items-start gap-1">
+      <div className="flex items-center gap-1">
         <span
-          className={`mt-1 h-1.5 w-1.5 shrink-0 rounded-full ${styles.dot}`}
+          className={`h-1.5 w-1.5 shrink-0 rounded-full ${styles.dot}`}
           aria-hidden
         />
-        <div className="min-w-0 flex-1">
-          <p className={`truncate text-[11px] font-semibold leading-tight ${styles.text}`}>
-            {event.title}
-          </p>
-          {subtitle ? (
-            <p className={`truncate text-[10px] leading-snug ${styles.muted}`}>
-              {subtitle}
-            </p>
-          ) : null}
-          {timeLabel ? (
-            <p className={`text-[10px] leading-snug ${styles.muted}`}>{timeLabel}</p>
-          ) : null}
-        </div>
+        <p
+          className={`min-w-0 flex-1 truncate text-[10px] font-semibold leading-none ${styles.text}`}
+        >
+          {event.title}
+        </p>
+        {timeLabel ? (
+          <span className={`shrink-0 text-[9px] leading-none ${styles.muted}`}>
+            {timeLabel}
+          </span>
+        ) : null}
       </div>
     </button>
   );
@@ -605,6 +646,9 @@ export default function CalendarPage() {
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [categoryFilters, setCategoryFilters] = useState(defaultCategoryFilters);
+  const [personalCategoryFilters, setPersonalCategoryFilters] = useState(
+    defaultPersonalCategoryFilters
+  );
   const [customCategories, setCustomCategories] = useState<CustomCalendarCategory[]>(
     []
   );
@@ -613,11 +657,14 @@ export default function CalendarPage() {
   >({});
   const [showOnlyStartDates, setShowOnlyStartDates] = useState(false);
   const [showAddCategoryModal, setShowAddCategoryModal] = useState(false);
+  const [isCalendarFullscreen, setIsCalendarFullscreen] = useState(false);
+  const [isNativeFullscreen, setIsNativeFullscreen] = useState(false);
   const [addCategoryName, setAddCategoryName] = useState("");
   const [addCategoryColor, setAddCategoryColor] = useState<string>(
     CALENDAR_COLOR_PALETTE[0]
   );
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const calendarContainerRef = useRef<HTMLDivElement>(null);
   const loadSeq = useRef(0);
 
   function resetAttachment() {
@@ -699,6 +746,46 @@ export default function CalendarPage() {
     return () => clearInterval(timer);
   }, []);
 
+  useEffect(() => {
+    function syncFullscreenState() {
+      const el = calendarContainerRef.current;
+      const isNative = Boolean(el && document.fullscreenElement === el);
+      setIsNativeFullscreen(isNative);
+      setIsCalendarFullscreen(isNative);
+    }
+    document.addEventListener("fullscreenchange", syncFullscreenState);
+    return () =>
+      document.removeEventListener("fullscreenchange", syncFullscreenState);
+  }, []);
+
+  useEffect(() => {
+    if (!isCalendarFullscreen || isNativeFullscreen) return;
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        setIsCalendarFullscreen(false);
+      }
+    }
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [isCalendarFullscreen, isNativeFullscreen]);
+
+  async function toggleCalendarFullscreen() {
+    const el = calendarContainerRef.current;
+    if (!el) return;
+
+    try {
+      if (document.fullscreenElement) {
+        await document.exitFullscreen();
+        return;
+      }
+      await el.requestFullscreen();
+    } catch (error) {
+      console.error("Fullscreen request failed:", error);
+      setIsNativeFullscreen(false);
+      setIsCalendarFullscreen((prev) => !prev);
+    }
+  }
+
   const weekDays = useMemo(
     () => Array.from({ length: 7 }, (_, i) => addDays(weekStart, i)),
     [weekStart]
@@ -709,10 +796,15 @@ export default function CalendarPage() {
     [events, calendarScope, currentUserId]
   );
 
+  const activeCategoryFilters =
+    calendarScope === "personal" ? personalCategoryFilters : categoryFilters;
+
   const filteredEvents = useMemo(
     () =>
-      visibleEvents.filter((event) => eventMatchesFilters(event, categoryFilters)),
-    [visibleEvents, categoryFilters]
+      visibleEvents.filter((event) =>
+        eventMatchesFilters(event, activeCategoryFilters)
+      ),
+    [visibleEvents, activeCategoryFilters]
   );
 
   const eventsByDay = useMemo(() => {
@@ -741,6 +833,13 @@ export default function CalendarPage() {
   }, [focusKey, dayEvents]);
 
   function toggleCategoryFilter(category: CalendarCategory) {
+    if (calendarScope === "personal") {
+      setPersonalCategoryFilters((prev) => ({
+        ...prev,
+        [category]: !(prev[category as keyof typeof prev] ?? true),
+      }));
+      return;
+    }
     setCategoryFilters((prev) => ({
       ...prev,
       [category]: !prev[category],
@@ -774,6 +873,15 @@ export default function CalendarPage() {
     setShowAddCategoryModal(false);
     setAddCategoryName("");
     setAddCategoryColor(CALENDAR_COLOR_PALETTE[0]);
+  }
+
+  function handleDeleteCustomCategory(categoryId: string) {
+    setCustomCategories((prev) => prev.filter((category) => category.id !== categoryId));
+    setCustomCategoryFilters((prev) => {
+      const next = { ...prev };
+      delete next[categoryId];
+      return next;
+    });
   }
 
   const currentTimePercent =
@@ -921,6 +1029,17 @@ export default function CalendarPage() {
     let workingPayload = { ...payload };
     let { data, error } = await persist(workingPayload);
 
+    if (
+      error?.message?.includes("invalid input value for enum calendar_event_type")
+    ) {
+      const requested = workingPayload.event_type as CalendarEventType;
+      const fallback = EVENT_TYPE_ENUM_FALLBACK[requested];
+      if (fallback) {
+        workingPayload = { ...workingPayload, event_type: fallback };
+        ({ data, error } = await persist(workingPayload));
+      }
+    }
+
     // Strip unknown optional columns one-by-one if the live DB is behind migrations.
     for (let attempt = 0; attempt < optionalFields.length && error; attempt++) {
       const missing =
@@ -941,11 +1060,16 @@ export default function CalendarPage() {
       const privacyMissing =
         error?.message?.toLowerCase().includes("user_id") ||
         error?.message?.toLowerCase().includes("calendar_scope");
+      const enumMissing = error?.message?.includes(
+        "invalid input value for enum calendar_event_type"
+      );
       setSaveError(
         privacyMissing
           ? "Personal calendar privacy columns are missing. Run 20260727000004_calendar_events_full_setup.sql in the Supabase SQL Editor, then try again."
-          : (error?.message ??
-            "Could not save event. Your database may be missing calendar columns — run the calendar setup SQL in Supabase.")
+          : enumMissing
+            ? `Event type "${form.event_type}" is not in your database yet. Run this in the Supabase SQL Editor: ${CALENDAR_ENUM_SETUP_SQL}`
+            : (error?.message ??
+              "Could not save event. Your database may be missing calendar columns — run the calendar setup SQL in Supabase.")
       );
       return;
     }
@@ -1006,6 +1130,7 @@ export default function CalendarPage() {
     <div className="flex h-[calc(100vh-2.5rem)] min-h-0 flex-col overflow-hidden">
       <div className="grid min-h-0 flex-1 grid-cols-1 items-stretch gap-4 xl:grid-cols-[1fr_320px]">
         <div className="flex min-h-0 min-w-0 flex-col">
+          {!isCalendarFullscreen ? (
           <div className="mb-2 flex shrink-0 items-center justify-between px-1">
             <h1 className="text-2xl font-semibold text-gray-900">
               {calendarScope === "production"
@@ -1029,10 +1154,20 @@ export default function CalendarPage() {
               ))}
             </div>
           </div>
+          ) : null}
           {loading ? (
             <p className="text-gray-500">Loading…</p>
           ) : (
-            <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border border-gray-200 bg-white">
+            <div
+              ref={calendarContainerRef}
+              className={`flex min-h-0 flex-1 flex-col overflow-hidden bg-white ${
+                isCalendarFullscreen
+                  ? isNativeFullscreen
+                    ? "h-full w-full"
+                    : "fixed inset-0 z-[100] h-full w-full"
+                  : "rounded-lg border border-gray-200"
+              }`}
+            >
               <div className="grid shrink-0 grid-cols-[1fr_auto_1fr] items-center border-b border-gray-200 px-4 py-2.5">
                 <div className="relative justify-self-start">
                   <select
@@ -1070,7 +1205,22 @@ export default function CalendarPage() {
                     <IconChevronRight size={18} />
                   </button>
                 </div>
-                <div aria-hidden />
+                <div className="flex justify-end">
+                  <button
+                    type="button"
+                    onClick={() => void toggleCalendarFullscreen()}
+                    className="rounded-md border border-gray-300 p-1.5 text-gray-600 hover:bg-gray-50"
+                    aria-label={
+                      isCalendarFullscreen ? "Exit full screen" : "Full screen"
+                    }
+                  >
+                    {isCalendarFullscreen ? (
+                      <IconArrowsMinimize size={18} />
+                    ) : (
+                      <IconArrowsMaximize size={18} />
+                    )}
+                  </button>
+                </div>
               </div>
 
               {viewMode === "day" ? (
@@ -1246,57 +1396,158 @@ export default function CalendarPage() {
                     </div>
                   ))}
                 </div>
-                <div className="grid min-h-0 flex-1 grid-cols-7 grid-rows-6">
-                  {monthGrid.map((day) => {
+                <div className="grid min-h-0 flex-1 grid-cols-7 grid-rows-5">
+                  {monthGrid.map((cell) => {
+                    const { date: day, overflowDate } = cell;
                     const dateStr = formatDateKey(day);
-                    const dayEvts = eventsByDay.get(dateStr) ?? [];
+                    const overflowStr = overflowDate
+                      ? formatDateKey(overflowDate)
+                      : null;
+                    const dayEvts = [
+                      ...(eventsByDay.get(dateStr) ?? []),
+                      ...(overflowStr
+                        ? (eventsByDay.get(overflowStr) ?? [])
+                        : []),
+                    ];
                     const inMonth =
                       day.getMonth() === displayMonth &&
                       day.getFullYear() === displayYear;
-                    const isToday = dateStr === todayKey;
+                    const isTodayPrimary = dateStr === todayKey;
+                    const isTodayOverflow =
+                      overflowStr !== null && overflowStr === todayKey;
+                    const isToday = isTodayPrimary || isTodayOverflow;
                     const visibleEvts = dayEvts.slice(0, 2);
                     const extra = dayEvts.length - visibleEvts.length;
+
+                    const overflowInMonth =
+                      overflowDate !== undefined &&
+                      overflowDate.getMonth() === displayMonth &&
+                      overflowDate.getFullYear() === displayYear;
 
                     return (
                       <div
                         key={dateStr}
-                        role="button"
-                        tabIndex={0}
-                        onClick={() => openDatePreview(day)}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter" || e.key === " ") {
-                            e.preventDefault();
-                            openDatePreview(day);
-                          }
-                        }}
-                        className="flex min-h-0 cursor-pointer flex-col border-b border-r border-gray-200 bg-white text-left hover:bg-gray-50/80 last:border-r-0 [&:nth-child(7n)]:border-r-0"
+                        role={overflowDate ? undefined : "button"}
+                        tabIndex={overflowDate ? undefined : 0}
+                        onClick={
+                          overflowDate
+                            ? undefined
+                            : () => openDatePreview(day)
+                        }
+                        onKeyDown={
+                          overflowDate
+                            ? undefined
+                            : (e) => {
+                                if (e.key === "Enter" || e.key === " ") {
+                                  e.preventDefault();
+                                  openDatePreview(day);
+                                }
+                              }
+                        }
+                        className={`relative flex min-h-0 flex-col border-b border-r border-gray-200 bg-white text-left last:border-r-0 [&:nth-child(7n)]:border-r-0 ${
+                          overflowDate
+                            ? ""
+                            : "cursor-pointer hover:bg-gray-50/80"
+                        }`}
                       >
-                        <div className="flex shrink-0 items-start p-1.5 pb-1">
-                          <span
-                            className={`inline-flex h-6 min-w-[1.5rem] items-center justify-center rounded-full px-1 text-sm font-medium ${
-                              isToday
-                                ? "bg-burgundy text-white"
-                                : inMonth
-                                  ? "text-gray-900"
-                                  : "text-gray-300"
-                            }`}
-                          >
-                            {day.getDate()}
-                          </span>
-                        </div>
-                        <div className="min-h-0 flex-1 space-y-0.5 overflow-hidden px-1 pb-1.5">
+                        {overflowDate ? (
+                          <>
+                            <svg
+                              className="pointer-events-none absolute inset-0 z-0 h-full w-full text-gray-200"
+                              preserveAspectRatio="none"
+                              aria-hidden
+                            >
+                              <line
+                                x1="100%"
+                                y1="0"
+                                x2="0"
+                                y2="100%"
+                                stroke="currentColor"
+                                strokeWidth="1"
+                                vectorEffect="non-scaling-stroke"
+                              />
+                            </svg>
+                            <button
+                              type="button"
+                              aria-label={day.toLocaleDateString("en-US", {
+                                weekday: "long",
+                                month: "long",
+                                day: "numeric",
+                              })}
+                              className="absolute inset-0 z-[5] cursor-pointer border-0 bg-transparent p-0 [clip-path:polygon(0_0,100%_0,0_100%)] hover:bg-gray-50/80"
+                              onClick={() => openDatePreview(day)}
+                            />
+                            <button
+                              type="button"
+                              aria-label={overflowDate.toLocaleDateString(
+                                "en-US",
+                                {
+                                  weekday: "long",
+                                  month: "long",
+                                  day: "numeric",
+                                }
+                              )}
+                              className="absolute inset-0 z-[5] cursor-pointer border-0 bg-transparent p-0 [clip-path:polygon(100%_0,100%_100%,0_100%)] hover:bg-gray-50/80"
+                              onClick={() => openDatePreview(overflowDate)}
+                            />
+                            <span
+                              className={`pointer-events-none absolute left-1.5 top-1.5 z-10 inline-flex h-6 min-w-[1.5rem] items-center justify-center text-sm font-medium ${splitDayNumberClass(inMonth, isTodayPrimary)}`}
+                            >
+                              {day.getDate()}
+                            </span>
+                            <span
+                              className={`pointer-events-none absolute bottom-1.5 right-1.5 z-10 inline-flex h-6 min-w-[1.5rem] items-center justify-center text-sm font-medium ${splitDayNumberClass(overflowInMonth, isTodayOverflow)}`}
+                            >
+                              {overflowDate.getDate()}
+                            </span>
+                          </>
+                        ) : (
+                          <div className="flex shrink-0 items-start p-1.5 pb-1">
+                            <span
+                              className={`inline-flex h-6 min-w-[1.5rem] items-center justify-center rounded-full px-1 text-sm font-medium ${
+                                isToday
+                                  ? "bg-burgundy text-white"
+                                  : inMonth
+                                    ? "text-gray-900"
+                                    : "text-gray-300"
+                              }`}
+                            >
+                              {day.getDate()}
+                            </span>
+                          </div>
+                        )}
+                        <div
+                          className={`relative z-10 min-h-0 flex-1 space-y-0.5 overflow-x-hidden overflow-y-hidden px-1 pb-1 ${
+                            overflowDate
+                              ? "pointer-events-none pt-8 pr-8"
+                              : "pt-0.5"
+                          }`}
+                        >
                           {visibleEvts.map((ev) => (
                             <MonthEventChip
                               key={ev.id}
                               event={ev}
                               selected={selectedEventId === ev.id}
-                              onSelect={() => openDatePreview(day)}
+                              onSelect={() =>
+                                openDatePreview(
+                                  new Date(`${ev.event_date}T12:00:00`)
+                                )
+                              }
                             />
                           ))}
                           {extra > 0 ? (
-                            <span className="block w-full px-1 text-left text-[10px] font-medium text-gray-500">
+                            <button
+                              type="button"
+                              className={`block w-full px-1 text-left text-[10px] font-medium text-gray-500 hover:text-gray-700 ${
+                                overflowDate ? "pointer-events-auto" : ""
+                              }`}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                openDatePreview(day);
+                              }}
+                            >
                               +{extra} more
-                            </span>
+                            </button>
                           ) : null}
                         </div>
                       </div>
@@ -1309,6 +1560,7 @@ export default function CalendarPage() {
           )}
         </div>
 
+        {!isCalendarFullscreen ? (
         <div className="flex min-h-0 flex-col gap-3 xl:h-full">
           <MiniCalendar
             displayDate={viewMode === "week" ? weekStart : focusDate}
@@ -1318,16 +1570,19 @@ export default function CalendarPage() {
           />
           <AddEventButton onClick={() => openCreateModal()} />
           <CalendarToolsPanel
-            filters={categoryFilters}
+            scope={calendarScope}
+            filters={activeCategoryFilters}
             customCategories={customCategories}
             customFilters={customCategoryFilters}
             onToggle={toggleCategoryFilter}
             onToggleCustom={toggleCustomCategoryFilter}
+            onDeleteCustom={handleDeleteCustomCategory}
             showOnlyStartDates={showOnlyStartDates}
             onToggleStartDates={() => setShowOnlyStartDates((prev) => !prev)}
             onOpenAddCategory={openAddCategoryModal}
           />
         </div>
+        ) : null}
       </div>
 
       {showAddCategoryModal && (
@@ -1397,13 +1652,19 @@ export default function CalendarPage() {
                       }
                       className={`${SELECT_CLASS} w-full px-3 py-1.5`}
                     >
-                      <option value="drafting">Drafting</option>
-                      <option value="production">Production</option>
-                      <option value="delivery">Delivery</option>
-                      <option value="shop_closed">Shop closed</option>
                       {calendarScope === "personal" ? (
-                        <option value="personal">Personal</option>
-                      ) : null}
+                        <>
+                          <option value="personal">Meeting</option>
+                          <option value="shop_closed">Shop closed</option>
+                        </>
+                      ) : (
+                        <>
+                          <option value="drafting">Drafting</option>
+                          <option value="production">Production</option>
+                          <option value="delivery">Delivery</option>
+                          <option value="shop_closed">Shop closed</option>
+                        </>
+                      )}
                     </select>
                     <SelectChevron />
                   </div>

@@ -10,6 +10,8 @@ ALTER TYPE calendar_event_type ADD VALUE IF NOT EXISTS 'installation';
 ALTER TYPE calendar_event_type ADD VALUE IF NOT EXISTS 'personal';
 ALTER TYPE calendar_event_type ADD VALUE IF NOT EXISTS 'deadline';
 ALTER TYPE calendar_event_type ADD VALUE IF NOT EXISTS 'other';
+ALTER TYPE calendar_event_type ADD VALUE IF NOT EXISTS 'drafting';
+ALTER TYPE calendar_event_type ADD VALUE IF NOT EXISTS 'shop_closed';
 
 -- Time fields
 ALTER TABLE calendar_events ADD COLUMN IF NOT EXISTS start_time TIME;
