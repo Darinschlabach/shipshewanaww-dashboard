@@ -123,7 +123,6 @@ export function showReminderNotification(event: ReminderEvent): void {
     const notification = new Notification(event.title || "Calendar reminder", {
       body: bodyParts.join(" · "),
       tag: reminderFiredKey(event),
-      renotify: true,
       silent: true, // we play our own sound
     });
     notification.onclick = () => {
