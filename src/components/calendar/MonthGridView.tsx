@@ -327,7 +327,7 @@ export default function MonthGridView({
                 >
                   <IconConfetti size={10} />
                   <span className="truncate">
-                    {item.firstName}'s Birthday ({item.age})
+                    {`${item.firstName}'s Birthday (${item.age})`}
                   </span>
                   <IconConfetti size={10} />
                 </div>
@@ -339,7 +339,7 @@ export default function MonthGridView({
                 >
                   <IconConfetti size={10} />
                   <span className="truncate">
-                    {item.firstName}'s Birthday ({item.age})
+                    {`${item.firstName}'s Birthday (${item.age})`}
                   </span>
                   <IconConfetti size={10} />
                 </div>
