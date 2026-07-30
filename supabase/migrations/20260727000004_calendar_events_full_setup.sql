@@ -23,6 +23,16 @@ ALTER TABLE calendar_events ADD COLUMN IF NOT EXISTS is_all_day BOOLEAN DEFAULT 
 ALTER TABLE calendar_events ADD COLUMN IF NOT EXISTS location TEXT;
 ALTER TABLE calendar_events ADD COLUMN IF NOT EXISTS description TEXT;
 
+-- Reminder (minutes before event)
+ALTER TABLE calendar_events ADD COLUMN IF NOT EXISTS reminder_minutes INTEGER;
+
+-- Recurring series link (shared across occurrences)
+ALTER TABLE calendar_events ADD COLUMN IF NOT EXISTS recurrence_series_id UUID;
+
+CREATE INDEX IF NOT EXISTS calendar_events_recurrence_series_id_idx
+  ON calendar_events (recurrence_series_id)
+  WHERE recurrence_series_id IS NOT NULL;
+
 -- Ownership / privacy
 ALTER TABLE calendar_events
   ADD COLUMN IF NOT EXISTS user_id UUID REFERENCES auth.users(id) ON DELETE SET NULL;

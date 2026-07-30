@@ -286,6 +286,8 @@ export interface CalendarEvent {
   is_all_day: boolean | null;
   location: string | null;
   description: string | null;
+  reminder_minutes?: number | null;
+  recurrence_series_id?: string | null;
   user_id: string | null;
   calendar_scope: "production" | "personal" | null;
   created_at: string;

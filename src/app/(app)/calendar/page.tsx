@@ -40,6 +40,14 @@ import {
   useCalendarEmbed,
   useProductionSchedule,
 } from "@/components/calendar/CalendarEmbedContext";
+import { ensureNotificationPermission } from "@/lib/calendar-reminders";
+import {
+  defaultRecurrenceRule,
+  expandRecurrenceDates,
+  summarizeRecurrenceSchedule,
+  type RecurrenceRule,
+} from "@/lib/calendar-recurrence";
+import RecurrenceModal from "@/components/calendar/RecurrenceModal";
 import ProductionScheduleFooter from "@/components/jobs/ProductionScheduleFooter";
 import ProductionSchedulePanel from "@/components/jobs/ProductionSchedulePanel";
 import {
@@ -188,23 +196,36 @@ function SelectChevron() {
   );
 }
 
-const TIME_OPTIONS = Array.from({ length: 48 }, (_, i) => {
-  const minutes = i * 30;
-  const h = Math.floor(minutes / 60);
-  const m = minutes % 60;
-  const value = `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
-  const period = h >= 12 ? "PM" : "AM";
-  const hour12 = h % 12 || 12;
-  const label =
-    m === 0
-      ? `${hour12}:00 ${period}`
-      : `${hour12}:${String(m).padStart(2, "0")} ${period}`;
-  return { value, label };
-});
-
 function toTimeInputValue(time: string | null | undefined): string {
   if (!time) return "09:00";
   return time.slice(0, 5);
+}
+
+function buildRuleFromSeries(
+  event: EnrichedCalendarEvent,
+  allEvents: EnrichedCalendarEvent[]
+): RecurrenceRule {
+  const rule = defaultRecurrenceRule(
+    event.event_date,
+    toTimeInputValue(event.start_time),
+    toTimeInputValue(event.end_time),
+    event.is_all_day ?? false
+  );
+  if (!event.recurrence_series_id) return rule;
+
+  const dates = allEvents
+    .filter((ev) => ev.recurrence_series_id === event.recurrence_series_id)
+    .map((ev) => ev.event_date)
+    .sort();
+  if (dates.length === 0) return rule;
+
+  return {
+    ...rule,
+    startDate: dates[0]!,
+    endMode: "by_date",
+    endDate: dates[dates.length - 1]!,
+    occurrenceCount: dates.length,
+  };
 }
 
 function defaultEventForm(
@@ -226,6 +247,8 @@ function defaultEventForm(
     is_all_day: false,
     location: "",
     description: "",
+    remind_me: false,
+    reminder_minutes: "",
     custom_category_id:
       scope === "personal" && firstCustom ? firstCustom.id : "",
   };
@@ -762,6 +785,7 @@ function DatePreviewEventRow({
   customCategories?: CustomCalendarCategory[];
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
+  const isRecurring = Boolean(event.recurrence_series_id);
   const scheduleMeta = parseScheduleBubbleDescription(event.description);
   if (scheduleMeta) {
     const bubble = scheduleBubbleFromMeta(event.title, scheduleMeta);
@@ -810,6 +834,17 @@ function DatePreviewEventRow({
           {eventDescriptionLabel(event.description)}
         </p>
       </button>
+      {isRecurring ? (
+        <span
+          className={`inline-flex shrink-0 items-center gap-1 self-center text-[10px] font-medium opacity-90 ${
+            custom ? "" : styles.text
+          }`}
+          title="Recurring event"
+        >
+          <IconRepeat size={12} className="shrink-0" />
+          Recurring
+        </span>
+      ) : null}
       <div className="relative shrink-0 self-center">
         <button
           type="button"
@@ -917,12 +952,34 @@ function EventViewModal({
                 : formatTimeRange(event.startMinutes, event.endMinutes)}
             </dd>
           </div>
+          {event.recurrence_series_id ? (
+            <div>
+              <dt className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                Series
+              </dt>
+              <dd className="mt-1 flex items-center gap-1.5 text-gray-900">
+                <IconRepeat size={14} className="text-burgundy" />
+                Recurring event
+              </dd>
+            </div>
+          ) : null}
           {event.location?.trim() ? (
             <div>
               <dt className="text-xs font-semibold uppercase tracking-wide text-gray-500">
                 Location
               </dt>
               <dd className="mt-1 text-gray-900">{event.location.trim()}</dd>
+            </div>
+          ) : null}
+          {event.reminder_minutes && event.reminder_minutes > 0 ? (
+            <div>
+              <dt className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                Reminder
+              </dt>
+              <dd className="mt-1 text-gray-900">
+                {event.reminder_minutes} minute
+                {event.reminder_minutes === 1 ? "" : "s"} before
+              </dd>
             </div>
           ) : null}
           {event.jobNumber ? (
@@ -1286,6 +1343,11 @@ export default function CalendarPage() {
   const [attachedFile, setAttachedFile] = useState<File | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [recurrenceRule, setRecurrenceRule] = useState<RecurrenceRule | null>(
+    null
+  );
+  const [showRecurrenceModal, setShowRecurrenceModal] = useState(false);
+  const [reminderConfigured, setReminderConfigured] = useState(false);
   const [categoryFilters, setCategoryFilters] = useState(defaultCategoryFilters);
   const [personalCategoryFilters, setPersonalCategoryFilters] = useState(
     defaultPersonalCategoryFilters
@@ -1951,6 +2013,8 @@ export default function CalendarPage() {
     const dateKey = forDate ? formatDateKey(forDate) : focusKey;
     setEditingEvent(null);
     setForm(defaultEventForm(dateKey, calendarScope, scopedCustomCategories));
+    setRecurrenceRule(null);
+    setReminderConfigured(false);
     resetAttachment();
     setSaveError(null);
     setViewingEvent(null);
@@ -1980,11 +2044,63 @@ export default function CalendarPage() {
       description: customMeta
         ? (customMeta.body ?? "")
         : (event.description ?? ""),
+      remind_me: Boolean(event.reminder_minutes && event.reminder_minutes > 0),
+      reminder_minutes:
+        event.reminder_minutes && event.reminder_minutes > 0
+          ? String(event.reminder_minutes)
+          : "",
       custom_category_id: customMeta?.category_id ?? "",
     });
+    const seriesRule = event.recurrence_series_id
+      ? buildRuleFromSeries(event, events)
+      : null;
+    setRecurrenceRule(seriesRule);
+    setReminderConfigured(
+      Boolean(event.reminder_minutes && event.reminder_minutes > 0)
+    );
     setViewingEvent(null);
     setPreviewDate(null);
     setShowModal(true);
+    if (event.recurrence_series_id) {
+      setShowRecurrenceModal(true);
+    }
+  }
+
+  async function handleRemoveRecurrence() {
+    const seriesId = editingEvent?.recurrence_series_id;
+    if (!seriesId || !editingEvent) {
+      setRecurrenceRule(null);
+      setShowRecurrenceModal(false);
+      return;
+    }
+
+    const supabase = createClient();
+    await supabase
+      .from("calendar_events")
+      .delete()
+      .eq("recurrence_series_id", seriesId)
+      .neq("id", editingEvent.id);
+    await supabase
+      .from("calendar_events")
+      .update({ recurrence_series_id: null })
+      .eq("id", editingEvent.id);
+
+    setEvents((prev) =>
+      prev
+        .filter(
+          (ev) =>
+            ev.recurrence_series_id !== seriesId || ev.id === editingEvent.id
+        )
+        .map((ev) =>
+          ev.id === editingEvent.id
+            ? { ...ev, recurrence_series_id: null }
+            : ev
+        )
+    );
+    setEditingEvent({ ...editingEvent, recurrence_series_id: null });
+    setRecurrenceRule(null);
+    setShowRecurrenceModal(false);
+    void load();
   }
 
   async function handleDeleteEvent(event: EnrichedCalendarEvent) {
@@ -2016,6 +2132,17 @@ export default function CalendarPage() {
       return;
     }
 
+    const reminderMinutes = form.remind_me
+      ? Number.parseInt(form.reminder_minutes, 10)
+      : null;
+    if (
+      form.remind_me &&
+      (!Number.isFinite(reminderMinutes) || (reminderMinutes ?? 0) <= 0)
+    ) {
+      setSaveError("Enter how many minutes before the event to remind you.");
+      return;
+    }
+
     setSaving(true);
     setSaveError(null);
     const supabase = createClient();
@@ -2036,7 +2163,7 @@ export default function CalendarPage() {
         )
       : form.description.trim() || null;
 
-    const payload: Record<string, unknown> = {
+    const basePayload: Record<string, unknown> = {
       title: form.title.trim(),
       event_type: form.event_type,
       event_date: form.event_date,
@@ -2046,6 +2173,7 @@ export default function CalendarPage() {
       end_time: form.is_all_day ? null : form.end_time,
       location: form.location.trim() || null,
       description,
+      reminder_minutes: form.remind_me ? reminderMinutes : null,
       // Always stamp scope from the active calendar tab.
       // Personal events must be owned by the signed-in user.
       user_id:
@@ -2054,6 +2182,260 @@ export default function CalendarPage() {
           : (editingEvent?.user_id ?? user.id),
       calendar_scope: calendarScope,
     };
+
+    // Never strip user_id / calendar_scope — privacy depends on them.
+    const optionalFields = [
+      "description",
+      "location",
+      "end_time",
+      "start_time",
+      "is_all_day",
+      "reminder_minutes",
+      "recurrence_series_id",
+    ] as const;
+
+    function applyEnumFallback(payload: Record<string, unknown>) {
+      const requested = payload.event_type as CalendarEventType;
+      const fallback = EVENT_TYPE_ENUM_FALLBACK[requested];
+      return fallback ? { ...payload, event_type: fallback } : payload;
+    }
+
+    function stripOptionalField(
+      payload: Record<string, unknown>,
+      errorMessage: string
+    ): Record<string, unknown> | null {
+      const missing =
+        errorMessage.match(/'([^']+)' column/i)?.[1] ??
+        optionalFields.find((field) =>
+          errorMessage.toLowerCase().includes(field)
+        );
+      if (!missing || !(missing in payload)) return null;
+      if (missing === "user_id" || missing === "calendar_scope") return null;
+      const { [missing]: _removed, ...rest } = payload;
+      return rest;
+    }
+
+    function saveErrorMessage(error: { message?: string } | null): string {
+      const privacyMissing =
+        error?.message?.toLowerCase().includes("user_id") ||
+        error?.message?.toLowerCase().includes("calendar_scope");
+      const enumMissing = error?.message?.includes(
+        "invalid input value for enum calendar_event_type"
+      );
+      if (privacyMissing) {
+        return "Personal calendar privacy columns are missing. Run 20260727000004_calendar_events_full_setup.sql in the Supabase SQL Editor, then try again.";
+      }
+      if (enumMissing) {
+        return `Event type "${form.event_type}" is not in your database yet. Run this in the Supabase SQL Editor: ${CALENDAR_ENUM_SETUP_SQL}`;
+      }
+      return (
+        error?.message ??
+        "Could not save event. Your database may be missing calendar columns — run the calendar setup SQL in Supabase."
+      );
+    }
+
+    if (recurrenceRule) {
+      const dates = expandRecurrenceDates(recurrenceRule);
+      if (dates.length === 0) {
+        setSaving(false);
+        setSaveError(
+          "Recurrence produced no dates. Check the pattern and end range."
+        );
+        return;
+      }
+
+      const seriesId =
+        editingEvent?.recurrence_series_id ??
+        (typeof crypto !== "undefined" && "randomUUID" in crypto
+          ? crypto.randomUUID()
+          : `${Date.now()}-${Math.random().toString(16).slice(2)}`);
+
+      const occurrencePayload = (date: string): Record<string, unknown> => ({
+        ...basePayload,
+        event_date: date,
+        is_all_day: recurrenceRule.isAllDay,
+        start_time: recurrenceRule.isAllDay ? null : recurrenceRule.startTime,
+        end_time: recurrenceRule.isAllDay ? null : recurrenceRule.endTime,
+        recurrence_series_id: seriesId,
+      });
+
+      async function insertMany(rows: Record<string, unknown>[]) {
+        let working = rows.map((row) => ({ ...row }));
+        let { data, error } = await supabase
+          .from("calendar_events")
+          .insert(working)
+          .select("*, jobs(id, name, created_at, contacts(name))");
+
+        if (
+          error?.message?.includes(
+            "invalid input value for enum calendar_event_type"
+          )
+        ) {
+          working = working.map(applyEnumFallback);
+          ({ data, error } = await supabase
+            .from("calendar_events")
+            .insert(working)
+            .select("*, jobs(id, name, created_at, contacts(name))"));
+        }
+
+        for (let attempt = 0; attempt < optionalFields.length && error; attempt++) {
+          const stripped = stripOptionalField(working[0]!, error.message);
+          if (!stripped) break;
+          working = working.map((row) => {
+            const next = stripOptionalField(row, error!.message);
+            return next ?? row;
+          });
+          ({ data, error } = await supabase
+            .from("calendar_events")
+            .insert(working)
+            .select("*, jobs(id, name, created_at, contacts(name))"));
+        }
+
+        return { data, error };
+      }
+
+      async function updateOne(
+        id: string,
+        payload: Record<string, unknown>
+      ) {
+        let working = { ...payload };
+        let { data, error } = await supabase
+          .from("calendar_events")
+          .update(working)
+          .eq("id", id)
+          .select("*, jobs(id, name, created_at, contacts(name))")
+          .single();
+
+        if (
+          error?.message?.includes(
+            "invalid input value for enum calendar_event_type"
+          )
+        ) {
+          working = applyEnumFallback(working);
+          ({ data, error } = await supabase
+            .from("calendar_events")
+            .update(working)
+            .eq("id", id)
+            .select("*, jobs(id, name, created_at, contacts(name))")
+            .single());
+        }
+
+        for (let attempt = 0; attempt < optionalFields.length && error; attempt++) {
+          const next = stripOptionalField(working, error.message);
+          if (!next) break;
+          working = next;
+          ({ data, error } = await supabase
+            .from("calendar_events")
+            .update(working)
+            .eq("id", id)
+            .select("*, jobs(id, name, created_at, contacts(name))")
+            .single());
+        }
+
+        return { data, error };
+      }
+
+      const anchorDate = dates.includes(form.event_date)
+        ? form.event_date
+        : dates[0]!;
+      const insertDates = dates.filter((date) => date !== anchorDate);
+      const insertRows = insertDates.map(occurrencePayload);
+
+      let updateError: { message?: string } | null = null;
+      let insertError: { message?: string } | null = null;
+      let savedRows: CalendarEvent[] = [];
+
+      if (editingEvent?.recurrence_series_id) {
+        await supabase
+          .from("calendar_events")
+          .delete()
+          .eq("recurrence_series_id", editingEvent.recurrence_series_id)
+          .neq("id", editingEvent.id);
+      }
+
+      if (editingEvent) {
+        const { data, error } = await updateOne(
+          editingEvent.id,
+          occurrencePayload(anchorDate)
+        );
+        updateError = error;
+        if (data) savedRows = [data as CalendarEvent];
+      } else {
+        insertRows.unshift(occurrencePayload(anchorDate));
+      }
+
+      if (!updateError && insertRows.length > 0) {
+        const { data, error } = await insertMany(insertRows);
+        insertError = error;
+        if (data) {
+          savedRows = [...savedRows, ...(data as CalendarEvent[])];
+        }
+      }
+
+      setSaving(false);
+
+      if (updateError || insertError || savedRows.length === 0) {
+        setSaveError(saveErrorMessage(updateError ?? insertError));
+        return;
+      }
+
+      if (calendarScope === "personal") {
+        const leaked = savedRows.filter(
+          (row) => row.calendar_scope !== "personal" || row.user_id !== user.id
+        );
+        if (leaked.length > 0) {
+          setSaveError(
+            "Personal event could not be saved privately. Run the calendar privacy SQL in Supabase, then try again."
+          );
+          await supabase
+            .from("calendar_events")
+            .delete()
+            .in(
+              "id",
+              leaked.map((row) => row.id)
+            );
+          return;
+        }
+      }
+
+      const enriched = savedRows.map((row, index) =>
+        enrichCalendarEvent(
+          {
+            ...row,
+            calendar_scope: row.calendar_scope ?? calendarScope,
+            user_id: row.user_id ?? user.id,
+          },
+          events.length + index
+        )
+      );
+      setEvents((prev) => {
+        const removeIds = new Set(enriched.map((ev) => ev.id));
+        const oldSeries = editingEvent?.recurrence_series_id;
+        const without = prev.filter((ev) => {
+          if (removeIds.has(ev.id)) return false;
+          if (
+            oldSeries &&
+            ev.recurrence_series_id === oldSeries &&
+            ev.id !== editingEvent?.id
+          ) {
+            return false;
+          }
+          return true;
+        });
+        return [...without, ...enriched].sort((a, b) =>
+          a.event_date.localeCompare(b.event_date)
+        );
+      });
+      const focus = enriched[0]!;
+      setFocusDate(new Date(`${focus.event_date}T12:00:00`));
+      setSelectedEventId(focus.id);
+      setShowModal(false);
+      setEditingEvent(null);
+      setRecurrenceRule(null);
+      resetAttachment();
+      void load();
+      return;
+    }
 
     async function persist(nextPayload: Record<string, unknown>) {
       if (editingEvent) {
@@ -2071,60 +2453,28 @@ export default function CalendarPage() {
         .single();
     }
 
-    // Never strip user_id / calendar_scope — privacy depends on them.
-    const optionalFields = [
-      "description",
-      "location",
-      "end_time",
-      "start_time",
-      "is_all_day",
-    ] as const;
-
-    let workingPayload = { ...payload };
+    let workingPayload = { ...basePayload };
     let { data, error } = await persist(workingPayload);
 
     if (
       error?.message?.includes("invalid input value for enum calendar_event_type")
     ) {
-      const requested = workingPayload.event_type as CalendarEventType;
-      const fallback = EVENT_TYPE_ENUM_FALLBACK[requested];
-      if (fallback) {
-        workingPayload = { ...workingPayload, event_type: fallback };
-        ({ data, error } = await persist(workingPayload));
-      }
+      workingPayload = applyEnumFallback(workingPayload);
+      ({ data, error } = await persist(workingPayload));
     }
 
     // Strip unknown optional columns one-by-one if the live DB is behind migrations.
     for (let attempt = 0; attempt < optionalFields.length && error; attempt++) {
-      const missing =
-        error.message.match(/'([^']+)' column/i)?.[1] ??
-        optionalFields.find((field) =>
-          error!.message.toLowerCase().includes(field)
-        );
-      if (!missing || !(missing in workingPayload)) break;
-      if (missing === "user_id" || missing === "calendar_scope") break;
-      const { [missing]: _removed, ...rest } = workingPayload;
-      workingPayload = rest;
+      const next = stripOptionalField(workingPayload, error.message);
+      if (!next) break;
+      workingPayload = next;
       ({ data, error } = await persist(workingPayload));
     }
 
     setSaving(false);
 
     if (error || !data) {
-      const privacyMissing =
-        error?.message?.toLowerCase().includes("user_id") ||
-        error?.message?.toLowerCase().includes("calendar_scope");
-      const enumMissing = error?.message?.includes(
-        "invalid input value for enum calendar_event_type"
-      );
-      setSaveError(
-        privacyMissing
-          ? "Personal calendar privacy columns are missing. Run 20260727000004_calendar_events_full_setup.sql in the Supabase SQL Editor, then try again."
-          : enumMissing
-            ? `Event type "${form.event_type}" is not in your database yet. Run this in the Supabase SQL Editor: ${CALENDAR_ENUM_SETUP_SQL}`
-            : (error?.message ??
-              "Could not save event. Your database may be missing calendar columns — run the calendar setup SQL in Supabase.")
-      );
+      setSaveError(saveErrorMessage(error));
       return;
     }
 
@@ -2160,9 +2510,10 @@ export default function CalendarPage() {
     setSelectedEventId(saved.id);
     setShowModal(false);
     setEditingEvent(null);
+    setRecurrenceRule(null);
     resetAttachment();
     // Refresh in the background; stale responses are ignored via loadSeq.
-    void     load();
+    void load();
   }
 
   const monthDate = focusDate;
@@ -2653,6 +3004,7 @@ export default function CalendarPage() {
           className="h-[6.75in] w-[6.25in]"
           onClose={() => {
             resetAttachment();
+            setRecurrenceRule(null);
             setShowModal(false);
           }}
         >
@@ -2741,93 +3093,101 @@ export default function CalendarPage() {
               </div>
 
               <div className="space-y-2">
-                <div className="flex min-w-0 gap-3">
-                  <div className="flex min-w-0 w-1/2 items-center gap-2">
-                    <span className="w-16 shrink-0 text-sm text-gray-500">
-                      Start time
-                    </span>
-                    <input
-                      type="date"
-                      required
-                      value={form.event_date}
-                      onChange={(e) => updateEventDate(e.target.value)}
-                      className="min-w-0 flex-1 rounded-md border border-gray-300 px-2 py-1.5 text-sm"
-                    />
-                  </div>
-                  <div className="flex min-w-0 w-1/2 items-center gap-2">
-                    <div className="relative shrink-0">
-                      <select
-                        value={form.start_time}
-                        disabled={form.is_all_day}
-                        onChange={(e) =>
-                          setForm({ ...form, start_time: e.target.value })
-                        }
-                        className={`${SELECT_CLASS} w-28 px-2 py-1.5 disabled:bg-gray-50 disabled:text-gray-400`}
-                      >
-                        {TIME_OPTIONS.map((option) => (
-                          <option key={option.value} value={option.value}>
-                            {option.label}
-                          </option>
-                        ))}
-                      </select>
-                      <SelectChevron />
-                    </div>
-                    <label className="flex shrink-0 items-center gap-1.5 text-sm text-gray-700">
-                      <input
-                        type="checkbox"
-                        checked={form.is_all_day}
-                        onChange={(e) =>
-                          setForm({ ...form, is_all_day: e.target.checked })
-                        }
-                        className="rounded border-gray-300"
-                      />
-                      All day
-                    </label>
-                  </div>
-                </div>
-
-                <div className="flex min-w-0 gap-3">
-                  <div className="flex min-w-0 w-1/2 items-center gap-2">
-                    <span className="w-16 shrink-0 text-sm text-gray-500">
-                      End time
-                    </span>
-                    <input
-                      type="date"
-                      required
-                      value={form.end_date}
-                      onChange={(e) =>
-                        setForm({ ...form, end_date: e.target.value })
-                      }
-                      className="min-w-0 flex-1 rounded-md border border-gray-300 px-2 py-1.5 text-sm"
-                    />
-                  </div>
-                  <div className="flex min-w-0 w-1/2 items-center gap-2">
-                    <div className="relative shrink-0">
-                      <select
-                        value={form.end_time}
-                        disabled={form.is_all_day}
-                        onChange={(e) =>
-                          setForm({ ...form, end_time: e.target.value })
-                        }
-                        className={`${SELECT_CLASS} w-28 px-2 py-1.5 disabled:bg-gray-50 disabled:text-gray-400`}
-                      >
-                        {TIME_OPTIONS.map((option) => (
-                          <option key={option.value} value={option.value}>
-                            {option.label}
-                          </option>
-                        ))}
-                      </select>
-                      <SelectChevron />
-                    </div>
+                {recurrenceRule ? (
+                  <div className="flex min-w-0 items-center gap-3">
+                    <p className="min-w-0 flex-1 text-sm text-gray-800">
+                      {summarizeRecurrenceSchedule(recurrenceRule)}
+                    </p>
                     <button
                       type="button"
-                      className="inline-flex min-w-0 shrink items-center gap-1 text-sm font-medium text-burgundy hover:text-burgundy/80"
+                      onClick={() => setShowRecurrenceModal(true)}
+                      className="inline-flex shrink-0 items-center gap-1 text-sm font-medium text-burgundy hover:text-burgundy/80"
                     >
                       <IconRepeat size={16} className="shrink-0" />
-                      <span className="truncate">Make Recurring</span>
+                      Edit Recurrence
                     </button>
                   </div>
-                </div>
+                ) : (
+                  <>
+                    <div className="flex min-w-0 gap-3">
+                      <div className="flex min-w-0 w-1/2 items-center gap-2">
+                        <span className="w-16 shrink-0 text-sm text-gray-500">
+                          Start time
+                        </span>
+                        <input
+                          type="date"
+                          required
+                          value={form.event_date}
+                          onChange={(e) => updateEventDate(e.target.value)}
+                          className="min-w-0 flex-1 rounded-md border border-gray-300 px-2 py-1.5 text-sm"
+                        />
+                      </div>
+                      <div className="flex min-w-0 w-1/2 items-center gap-2">
+                        <input
+                          type="time"
+                          step={60}
+                          value={form.start_time.slice(0, 5)}
+                          disabled={form.is_all_day}
+                          onChange={(e) =>
+                            setForm({ ...form, start_time: e.target.value })
+                          }
+                          className="w-28 rounded-md border border-gray-300 px-2 py-1.5 text-sm disabled:bg-gray-50 disabled:text-gray-400"
+                        />
+                        <label className="flex shrink-0 items-center gap-1.5 text-sm text-gray-700">
+                          <input
+                            type="checkbox"
+                            checked={form.is_all_day}
+                            onChange={(e) =>
+                              setForm({
+                                ...form,
+                                is_all_day: e.target.checked,
+                              })
+                            }
+                            className="rounded border-gray-300"
+                          />
+                          All day
+                        </label>
+                      </div>
+                    </div>
+
+                    <div className="flex min-w-0 gap-3">
+                      <div className="flex min-w-0 w-1/2 items-center gap-2">
+                        <span className="w-16 shrink-0 text-sm text-gray-500">
+                          End time
+                        </span>
+                        <input
+                          type="date"
+                          required
+                          value={form.end_date}
+                          onChange={(e) =>
+                            setForm({ ...form, end_date: e.target.value })
+                          }
+                          className="min-w-0 flex-1 rounded-md border border-gray-300 px-2 py-1.5 text-sm"
+                        />
+                      </div>
+                      <div className="flex min-w-0 w-1/2 items-center gap-2">
+                        <input
+                          type="time"
+                          step={60}
+                          value={form.end_time.slice(0, 5)}
+                          disabled={form.is_all_day}
+                          onChange={(e) =>
+                            setForm({ ...form, end_time: e.target.value })
+                          }
+                          className="w-28 rounded-md border border-gray-300 px-2 py-1.5 text-sm disabled:bg-gray-50 disabled:text-gray-400"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setShowRecurrenceModal(true)}
+                          className="inline-flex min-w-0 shrink items-center gap-1 text-sm font-medium text-burgundy hover:text-burgundy/80"
+                        >
+                          <IconRepeat size={16} className="shrink-0" />
+                          <span className="truncate">Make Recurring</span>
+                        </button>
+                      </div>
+                    </div>
+                  </>
+                )}
               </div>
 
               <div>
@@ -2852,6 +3212,109 @@ export default function CalendarPage() {
                   placeholder="Add a description..."
                   className="scrollbar-none h-[1.25in] w-full resize-none overflow-hidden rounded-md border border-gray-300 px-3 py-1.5 text-sm"
                 />
+                <div className="mt-2 flex flex-wrap items-center gap-3">
+                  <label className="flex cursor-pointer items-center gap-2 select-none">
+                    <input
+                      type="checkbox"
+                      checked={form.remind_me}
+                      onChange={(e) => {
+                        const checked = e.target.checked;
+                        setForm({
+                          ...form,
+                          remind_me: checked,
+                          reminder_minutes: checked
+                            ? form.reminder_minutes || "15"
+                            : "",
+                        });
+                        setReminderConfigured(false);
+                        if (checked) {
+                          void ensureNotificationPermission().then(
+                            (permission) => {
+                              if (
+                                permission === "denied" ||
+                                permission === "unsupported"
+                              ) {
+                                setSaveError(
+                                  permission === "unsupported"
+                                    ? "Desktop notifications are not supported in this browser."
+                                    : "Notification permission was blocked. Enable notifications in your browser settings to get reminders."
+                                );
+                              } else {
+                                setSaveError(null);
+                              }
+                            }
+                          );
+                        }
+                      }}
+                      className="h-4 w-4 rounded border-gray-300 text-burgundy focus:ring-burgundy"
+                    />
+                    <span className="text-sm font-medium text-gray-900">
+                      Remind Me
+                    </span>
+                  </label>
+                  {form.remind_me && reminderConfigured ? (
+                    <div className="flex items-center gap-1.5 text-sm text-gray-700">
+                      <span>
+                        remind me {form.reminder_minutes || "15"} minute
+                        {form.reminder_minutes === "1" ? "" : "s"} before
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setReminderConfigured(false)}
+                        className="rounded p-0.5 text-gray-500 hover:bg-gray-100 hover:text-gray-800"
+                        aria-label="Edit reminder"
+                        title="Edit reminder"
+                      >
+                        <IconPencil size={14} />
+                      </button>
+                    </div>
+                  ) : null}
+                  {form.remind_me && !reminderConfigured ? (
+                    <div className="flex items-center gap-2 rounded-md border border-gray-200 bg-gray-50 px-2 py-1.5">
+                      <input
+                        type="number"
+                        min={1}
+                        step={1}
+                        value={form.reminder_minutes}
+                        onChange={(e) =>
+                          setForm({
+                            ...form,
+                            reminder_minutes: e.target.value,
+                          })
+                        }
+                        placeholder="Minutes"
+                        className="w-20 rounded-md border border-gray-300 px-2 py-1 text-sm"
+                        aria-label="Minutes before event"
+                      />
+                      <span className="text-xs text-gray-600">min before</span>
+                      <Button
+                        type="button"
+                        variant="small"
+                        onClick={() => {
+                          const minutes = Number.parseInt(
+                            form.reminder_minutes,
+                            10
+                          );
+                          if (!Number.isFinite(minutes) || minutes <= 0) {
+                            setSaveError(
+                              "Enter how many minutes before the event to remind you."
+                            );
+                            return;
+                          }
+                          setSaveError(null);
+                          setForm({
+                            ...form,
+                            remind_me: true,
+                            reminder_minutes: String(minutes),
+                          });
+                          setReminderConfigured(true);
+                        }}
+                      >
+                        Save
+                      </Button>
+                    </div>
+                  ) : null}
+                </div>
               </div>
             </div>
             <div className="flex shrink-0 flex-col gap-2 pt-4">
@@ -2899,7 +3362,9 @@ export default function CalendarPage() {
                     ? "Saving…"
                     : editingEvent
                       ? "Save changes"
-                      : "Create event"}
+                      : recurrenceRule
+                        ? "Create series"
+                        : "Create event"}
                 </Button>
               </div>
               </div>
@@ -2907,6 +3372,40 @@ export default function CalendarPage() {
           </form>
         </Modal>
       )}
+
+      {showRecurrenceModal ? (
+        <RecurrenceModal
+          initialRule={
+            recurrenceRule ??
+            defaultRecurrenceRule(
+              form.event_date,
+              form.start_time,
+              form.end_time,
+              form.is_all_day
+            )
+          }
+          onCancel={() => setShowRecurrenceModal(false)}
+          onRemove={
+            recurrenceRule || editingEvent?.recurrence_series_id
+              ? () => {
+                  void handleRemoveRecurrence();
+                }
+              : undefined
+          }
+          onSave={(rule) => {
+            setRecurrenceRule(rule);
+            setForm((prev) => ({
+              ...prev,
+              event_date: rule.startDate,
+              end_date: rule.startDate,
+              start_time: rule.startTime,
+              end_time: rule.endTime,
+              is_all_day: rule.isAllDay,
+            }));
+            setShowRecurrenceModal(false);
+          }}
+        />
+      ) : null}
     </div>
   );
 }
