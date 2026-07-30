@@ -21,6 +21,7 @@ const TYPE_FILTERS: TypeFilter[] = [
   "Employees",
   "Vendors",
 ];
+const CONTACT_TYPE_FILTER_STORAGE_KEY = "contacts:typeFilter";
 
 const emptyForm = {
   name: "",
@@ -28,6 +29,7 @@ const emptyForm = {
   phone: "",
   fax: "",
   address: "",
+  birthday: "",
   contact_type: "Customers" as ContactType,
 };
 
@@ -58,6 +60,22 @@ export default function ContactsPage() {
     load();
   }, [load]);
 
+  useEffect(() => {
+    const stored = window.localStorage.getItem(CONTACT_TYPE_FILTER_STORAGE_KEY);
+    if (!stored) return;
+    if ((TYPE_FILTERS as readonly string[]).includes(stored)) {
+      setTypeFilter(stored as TypeFilter);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (typeFilter === "All") {
+      window.localStorage.removeItem(CONTACT_TYPE_FILTER_STORAGE_KEY);
+      return;
+    }
+    window.localStorage.setItem(CONTACT_TYPE_FILTER_STORAGE_KEY, typeFilter);
+  }, [typeFilter]);
+
   const filtered = useMemo(() => {
     const q = search.toLowerCase();
     return contacts
@@ -87,6 +105,10 @@ export default function ContactsPage() {
       phone: form.phone || null,
       fax: form.fax || null,
       address: form.address || null,
+      birthday:
+        form.contact_type === "Employees" && form.birthday
+          ? form.birthday
+          : null,
       contact_type: form.contact_type,
     });
     setShowModal(false);
@@ -206,6 +228,17 @@ export default function ContactsPage() {
                 className={inputClass}
               />
             </div>
+            {form.contact_type === "Employees" ? (
+              <div>
+                <label className="mb-1 block text-sm font-medium">Date of Birth</label>
+                <input
+                  type="date"
+                  value={form.birthday}
+                  onChange={(e) => setForm({ ...form, birthday: e.target.value })}
+                  className={inputClass}
+                />
+              </div>
+            ) : null}
             <div>
               <label className="mb-1 block text-sm font-medium">Fax</label>
               <input

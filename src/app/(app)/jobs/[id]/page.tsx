@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { useParams, useRouter } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import {
   IconAlertCircle,
   IconArrowNarrowRight,
@@ -48,6 +48,7 @@ type JobDetailTab = (typeof JOB_DETAIL_TABS)[number];
 export default function JobDetailPage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [job, setJob] = useState<
     (Job & { contacts: Contact | null }) | null
   >(null);
@@ -60,6 +61,13 @@ export default function JobDetailPage() {
   const [boardStatus, setBoardStatus] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<JobDetailTab>("Overview");
+  useEffect(() => {
+    const tabParam = searchParams.get("tab");
+    if (tabParam?.toLowerCase() === "schedule") {
+      setActiveTab("Schedule");
+    }
+  }, [searchParams]);
+
   const [purchasingFullScreenMode, setPurchasingFullScreenMode] = useState(false);
 
   const load = useCallback(async () => {
@@ -315,8 +323,8 @@ export default function JobDetailPage() {
 
       {!hideJobHeaderForPurchasing ? (
         <div
-          className={`mb-6 flex flex-wrap items-center gap-4 border-b border-gray-200 pb-2 text-sm ${
-            isFillHeightTab ? "shrink-0" : ""
+          className={`flex flex-wrap items-center gap-4 border-b border-gray-200 pb-2 text-sm ${
+            isFillHeightTab ? "mb-2 shrink-0" : "mb-6"
           }`}
         >
           {JOB_DETAIL_TABS.map((tab) => (
@@ -367,7 +375,11 @@ export default function JobDetailPage() {
 
       {activeTab === "Schedule" ? (
         <div className="min-h-0 flex-1">
-          <ScheduleTab jobId={id} />
+          <ScheduleTab
+            jobId={id}
+            jobName={job.name}
+            autoOpenEditor={searchParams.get("openScheduleEditor") === "1"}
+          />
         </div>
       ) : activeTab === "Financials" ? (
         <div className="min-h-0 flex-1">

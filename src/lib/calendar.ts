@@ -2,8 +2,8 @@ import { formatProductionJobNumber } from "@/lib/production";
 import type { CalendarEvent, CalendarEventType, Job } from "@/lib/types";
 
 export type CalendarCategory =
-  | "drafting"
   | "production"
+  | "finishing"
   | "deliveries"
   | "shop_closed"
   | "meetings";
@@ -18,22 +18,22 @@ export const CALENDAR_CATEGORIES: {
   muted: string;
 }[] = [
   {
-    id: "drafting",
-    label: "Drafting",
-    bg: "bg-orange-50",
-    border: "border-l-orange-500",
-    text: "text-orange-900",
-    dot: "bg-orange-500",
-    muted: "text-orange-800/80",
-  },
-  {
     id: "production",
-    label: "Production",
+    label: "Fabricating",
     bg: "bg-red-50",
     border: "border-l-red-500",
     text: "text-red-900",
     dot: "bg-red-500",
     muted: "text-red-800/80",
+  },
+  {
+    id: "finishing",
+    label: "Finishing",
+    bg: "bg-blue-50",
+    border: "border-l-blue-500",
+    text: "text-blue-900",
+    dot: "bg-blue-500",
+    muted: "text-blue-800/80",
   },
   {
     id: "deliveries",
@@ -44,45 +44,38 @@ export const CALENDAR_CATEGORIES: {
     dot: "bg-green-500",
     muted: "text-green-800/80",
   },
-  {
-    id: "shop_closed",
-    label: "Shop closed",
-    bg: "bg-gray-100",
-    border: "border-l-gray-400",
-    text: "text-gray-800",
-    dot: "bg-gray-400",
-    muted: "text-gray-600",
-  },
 ];
 
+const SHOP_CLOSED_CATEGORY = {
+  id: "shop_closed" as const,
+  label: "Shop closed",
+  bg: "bg-gray-100",
+  border: "border-l-gray-500",
+  text: "text-gray-800",
+  dot: "bg-gray-500",
+  muted: "text-gray-600",
+};
+
+const MEETINGS_CATEGORY = {
+  id: "meetings" as const,
+  label: "Meetings",
+  bg: "bg-red-50",
+  border: "border-l-red-500",
+  text: "text-red-900",
+  dot: "bg-red-500",
+  muted: "text-red-800/80",
+};
+
+/** Built-in personal filters are empty; personal uses custom categories only. */
 export const PERSONAL_CALENDAR_CATEGORIES: {
-  id: Extract<CalendarCategory, "meetings" | "shop_closed">;
+  id: Extract<CalendarCategory, "meetings">;
   label: string;
   bg: string;
   border: string;
   text: string;
   dot: string;
   muted: string;
-}[] = [
-  {
-    id: "meetings",
-    label: "Meetings",
-    bg: "bg-red-50",
-    border: "border-l-red-500",
-    text: "text-red-900",
-    dot: "bg-red-500",
-    muted: "text-red-800/80",
-  },
-  {
-    id: "shop_closed",
-    label: "Shop closed",
-    bg: "bg-gray-100",
-    border: "border-l-gray-400",
-    text: "text-gray-800",
-    dot: "bg-gray-400",
-    muted: "text-gray-600",
-  },
-];
+}[] = [];
 
 export const CALENDAR_COLOR_PALETTE = [
   "#f97316",
@@ -101,13 +94,74 @@ export type CustomCalendarCategory = {
   id: string;
   label: string;
   color: string;
+  /** Categories stay on the calendar where they were created. */
+  scope: "personal" | "production";
 };
 
+export function customCategoriesForScope(
+  categories: CustomCalendarCategory[],
+  scope: "personal" | "production"
+): CustomCalendarCategory[] {
+  return categories.filter((category) => category.scope === scope);
+}
+
+export type CustomCategoryDescriptionMeta = {
+  custom_category: true;
+  category_id: string;
+  body?: string;
+};
+
+export function encodeCustomCategoryDescription(
+  categoryId: string,
+  body: string
+): string {
+  const meta: CustomCategoryDescriptionMeta = {
+    custom_category: true,
+    category_id: categoryId,
+    ...(body.trim() ? { body: body.trim() } : {}),
+  };
+  return JSON.stringify(meta);
+}
+
+export function parseCustomCategoryDescription(
+  description: string | null | undefined
+): CustomCategoryDescriptionMeta | null {
+  if (!description) return null;
+  try {
+    const parsed = JSON.parse(description) as CustomCategoryDescriptionMeta;
+    if (parsed?.custom_category !== true || !parsed.category_id) return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+export function getEventDisplayDescription(
+  description: string | null | undefined
+): string {
+  const custom = parseCustomCategoryDescription(description);
+  if (custom) return custom.body?.trim() ?? "";
+  return description?.trim() ?? "";
+}
+
+export function hexToRgba(hex: string, alpha: number): string {
+  const raw = hex.replace("#", "");
+  const normalized =
+    raw.length === 3
+      ? raw
+          .split("")
+          .map((char) => char + char)
+          .join("")
+      : raw;
+  const value = Number.parseInt(normalized, 16);
+  if (Number.isNaN(value)) return `rgba(100, 100, 100, ${alpha})`;
+  return `rgba(${(value >> 16) & 255}, ${(value >> 8) & 255}, ${value & 255}, ${alpha})`;
+}
+
 export const CALENDAR_LEGEND = [
-  { category: "drafting" as const, description: "Drafting and design work" },
+  { category: "finishing" as const, description: "Finishing work" },
   { category: "production" as const, description: "Shop tasks and job work" },
   { category: "deliveries" as const, description: "Deliveries to customers" },
-  { category: "shop_closed" as const, description: "Shop closed days" },
 ];
 
 export const WEEK_HOURS = [7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17];
@@ -162,22 +216,22 @@ export function buildMonthGrid(monthDate: Date): MonthGridCell[] {
 }
 
 const CATEGORY_MAP: Record<string, CalendarCategory> = {
-  drafting: "drafting",
+  drafting: "finishing",
+  finishing: "finishing",
   production: "production",
   delivery: "deliveries",
   shop_closed: "shop_closed",
-  quote: "drafting",
-  deadline: "drafting",
+  quote: "finishing",
+  deadline: "finishing",
   installation: "production",
-  personal: "drafting",
+  personal: "finishing",
   other: "production",
 };
 
 const ALL_CALENDAR_CATEGORIES = [
   ...CALENDAR_CATEGORIES,
-  ...PERSONAL_CALENDAR_CATEGORIES.filter(
-    (category) => !CALENDAR_CATEGORIES.some((builtIn) => builtIn.id === category.id)
-  ),
+  MEETINGS_CATEGORY,
+  SHOP_CLOSED_CATEGORY,
 ];
 
 export type EnrichedCalendarEvent = CalendarEvent & {
@@ -216,6 +270,16 @@ export function getCategoryStyles(category: CalendarCategory) {
   );
 }
 
+export function isShopClosedEvent(
+  event: Pick<EnrichedCalendarEvent, "event_type" | "category" | "title">
+): boolean {
+  return (
+    event.event_type === "shop_closed" ||
+    event.category === "shop_closed" ||
+    event.title.trim().toLowerCase() === "shop closed"
+  );
+}
+
 export function defaultCategoryFilters(): Record<CalendarCategory, boolean> {
   return Object.fromEntries(
     CALENDAR_CATEGORIES.map((category) => [category.id, true])
@@ -223,13 +287,10 @@ export function defaultCategoryFilters(): Record<CalendarCategory, boolean> {
 }
 
 export function defaultPersonalCategoryFilters(): Record<
-  Extract<CalendarCategory, "meetings" | "shop_closed">,
+  Extract<CalendarCategory, "meetings">,
   boolean
 > {
-  return {
-    meetings: true,
-    shop_closed: true,
-  };
+  return {} as Record<Extract<CalendarCategory, "meetings">, boolean>;
 }
 
 export function startOfWeek(date: Date): Date {
@@ -380,15 +441,19 @@ export function filterByCalendarTab(
   currentUserId?: string | null
 ): EnrichedCalendarEvent[] {
   if (tab === "production") {
-    return events.filter((e) => e.calendar_scope !== "personal");
+    return events.filter(
+      (e) => e.calendar_scope !== "personal" || isShopClosedEvent(e)
+    );
   }
   if (tab === "personal") {
-    // Strict ownership: never show another user's personal events,
-    // and never show personal rows with no owner.
-    if (!currentUserId) return [];
+    // Shop closed is shared across calendars.
+    // Other personal events stay owner-scoped.
     return events.filter(
       (e) =>
-        e.calendar_scope === "personal" && e.user_id === currentUserId
+        isShopClosedEvent(e) ||
+        (e.calendar_scope === "personal" &&
+          !!currentUserId &&
+          e.user_id === currentUserId)
     );
   }
   return events;

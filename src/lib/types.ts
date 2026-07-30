@@ -36,6 +36,7 @@ export type KanbanStatus =
 export type ProductionPriority = "high" | "medium" | "low";
 export type CalendarEventType =
   | "drafting"
+  | "finishing"
   | "production"
   | "delivery"
   | "shop_closed"
@@ -84,6 +85,7 @@ export interface Contact {
   phone: string | null;
   fax: string | null;
   address: string | null;
+  birthday: string | null;
   contact_type: ContactType;
   created_at: string;
   updated_at: string;

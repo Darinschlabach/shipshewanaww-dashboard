@@ -53,6 +53,7 @@ export default function ContactDetailPage() {
     phone: "",
     fax: "",
     address: "",
+    birthday: "",
     contact_type: "Customers" as ContactType,
   });
   const [editingContact, setEditingContact] = useState(false);
@@ -71,6 +72,7 @@ export default function ContactDetailPage() {
       phone: contactData.phone ?? "",
       fax: contactData.fax ?? "",
       address: contactData.address ?? "",
+      birthday: contactData.birthday ?? "",
       contact_type: contactData.contact_type,
     });
   }, []);
@@ -109,6 +111,10 @@ export default function ContactDetailPage() {
         phone: form.phone || null,
         fax: form.fax || null,
         address: form.address || null,
+        birthday:
+          form.contact_type === "Employees" && form.birthday
+            ? form.birthday
+            : null,
         contact_type: form.contact_type,
       })
       .eq("id", contact.id)
@@ -293,6 +299,21 @@ export default function ContactDetailPage() {
                   className={inputClass}
                 />
               </div>
+              {form.contact_type === "Employees" ? (
+                <div>
+                  <label className="mb-1 block text-sm font-medium">
+                    Date of Birth
+                  </label>
+                  <input
+                    type="date"
+                    value={form.birthday}
+                    onChange={(e) =>
+                      setForm({ ...form, birthday: e.target.value })
+                    }
+                    className={inputClass}
+                  />
+                </div>
+              ) : null}
               <div>
                 <label className="mb-1 block text-sm font-medium">Fax</label>
                 <input
@@ -344,6 +365,9 @@ export default function ContactDetailPage() {
               <DetailField label="Contact Name" value={contact.name} />
               <DetailField label="Email" value={contact.email} />
               <DetailField label="Phone" value={contact.phone} />
+              {contact.contact_type === "Employees" ? (
+                <DetailField label="Date of Birth" value={contact.birthday} />
+              ) : null}
               <DetailField label="Fax" value={contact.fax} />
               <DetailField label="Address" value={contact.address} />
               <DetailField label="Contact Type" value={contact.contact_type} />

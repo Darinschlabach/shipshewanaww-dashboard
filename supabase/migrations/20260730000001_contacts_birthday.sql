@@ -1,0 +1,4 @@
+ALTER TABLE contacts
+ADD COLUMN IF NOT EXISTS birthday DATE;
+
+NOTIFY pgrst, 'reload schema';
