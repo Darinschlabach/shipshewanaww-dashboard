@@ -161,6 +161,7 @@ function InvoiceBillingInfoPanel({
       email,
       address,
       fax: invoice.contacts?.fax ?? null,
+      birthday: invoice.contacts?.birthday ?? null,
       contact_type: invoice.contacts?.contact_type ?? ("Customers" as const),
       created_at: invoice.contacts?.created_at ?? "",
       updated_at: invoice.contacts?.updated_at ?? "",
