@@ -172,26 +172,41 @@ export default function FilesView({
     async function loadFiles() {
       setLoadingFiles(true);
       setUploadError(null);
-      const remote = await listJobFiles(jobId!);
-      const local = await localListJobFiles(jobId!);
-      if (cancelled) return;
+      try {
+        const remote = await listJobFiles(jobId!);
+        let local: CompanyFile[] = [];
+        try {
+          local = await localListJobFiles(jobId!);
+        } catch (err) {
+          console.error("Local job files load failed:", err);
+        }
+        if (cancelled) return;
 
-      if (!remote.error) {
-        const byId = new Map<string, CompanyFile>();
-        for (const file of local) byId.set(file.id, file);
-        for (const file of remote.files) byId.set(file.id, file);
-        setJobFiles(
-          [...byId.values()].sort((a, b) =>
-            b.modifiedAt.localeCompare(a.modifiedAt)
-          )
-        );
-      } else if (isMissingJobFilesTableError(remote.error)) {
-        setJobFiles(local);
-      } else {
-        setUploadError(remote.error);
-        setJobFiles(local);
+        if (!remote.error) {
+          const byId = new Map<string, CompanyFile>();
+          for (const file of local) byId.set(file.id, file);
+          for (const file of remote.files) byId.set(file.id, file);
+          setJobFiles(
+            [...byId.values()].sort((a, b) =>
+              b.modifiedAt.localeCompare(a.modifiedAt)
+            )
+          );
+        } else if (isMissingJobFilesTableError(remote.error)) {
+          setJobFiles(local);
+        } else {
+          setUploadError(remote.error);
+          setJobFiles(local);
+        }
+      } catch (err) {
+        if (!cancelled) {
+          console.error("Job files load failed:", err);
+          setUploadError(
+            err instanceof Error ? err.message : "Could not load files."
+          );
+        }
+      } finally {
+        if (!cancelled) setLoadingFiles(false);
       }
-      setLoadingFiles(false);
     }
     void loadFiles();
     return () => {

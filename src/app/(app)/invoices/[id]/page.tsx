@@ -92,10 +92,16 @@ export default function InvoiceDetailPage() {
 
   const load = useCallback(async () => {
     setLoading(true);
-    const supabase = createClient();
-    const row = await loadInvoiceRow(supabase, id);
-    setInvoice(row);
-    setLoading(false);
+    try {
+      const supabase = createClient();
+      const row = await loadInvoiceRow(supabase, id);
+      setInvoice(row);
+    } catch (err) {
+      console.error("Invoice detail load failed:", err);
+      setInvoice(null);
+    } finally {
+      setLoading(false);
+    }
   }, [id]);
 
   useEffect(() => {

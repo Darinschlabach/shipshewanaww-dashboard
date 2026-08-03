@@ -67,32 +67,49 @@ export default function JobDetailPage() {
   }, [searchParams]);
 
   const [purchasingFullScreenMode, setPurchasingFullScreenMode] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
-    const supabase = createClient();
-    const { data } = await supabase
-      .from("jobs")
-      .select("*, contacts(*)")
-      .eq("id", id)
-      .single();
+    setLoading(true);
+    setLoadError(null);
+    try {
+      const supabase = createClient();
+      const { data, error } = await supabase
+        .from("jobs")
+        .select("*, contacts(*)")
+        .eq("id", id)
+        .maybeSingle();
 
-    if (data) {
-      const j = data as Job & { contacts: Contact | null };
-      setJob(j);
-      setNotes(j.notes ?? "");
+      if (error) {
+        setLoadError(error.message);
+        setJob(null);
+      } else if (data) {
+        const j = data as Job & { contacts: Contact | null };
+        setJob(j);
+        setNotes(j.notes ?? "");
+      } else {
+        setJob(null);
+      }
+
+      const { data: boardRow } = await supabase
+        .from("production_jobs")
+        .select("id, kanban_status")
+        .eq("job_id", id)
+        .maybeSingle();
+      setOnProductionBoard(!!boardRow);
+      setBoardStatus(boardRow?.kanban_status ?? null);
+    } catch (err) {
+      console.error("Job detail load failed:", err);
+      setLoadError(err instanceof Error ? err.message : "Could not load job.");
+      setJob(null);
+    } finally {
+      setLoading(false);
     }
-
-    const { data: boardRow } = await supabase
-      .from("production_jobs")
-      .select("id, kanban_status")
-      .eq("job_id", id)
-      .maybeSingle();
-    setOnProductionBoard(!!boardRow);
-    setBoardStatus(boardRow?.kanban_status ?? null);
   }, [id]);
 
   useEffect(() => {
-    load();
+    void load();
   }, [load]);
 
   async function saveNotes(value: string) {
@@ -189,8 +206,24 @@ export default function JobDetailPage() {
     await load();
   }
 
-  if (!job) {
+  if (loading) {
     return <p className="text-gray-500">Loading…</p>;
+  }
+
+  if (!job) {
+    return (
+      <div>
+        <p className="text-gray-500">
+          {loadError || "Job not found."}
+        </p>
+        <Link
+          href="/jobs"
+          className="mt-2 inline-block text-sm text-burgundy hover:underline"
+        >
+          Back to Jobs
+        </Link>
+      </div>
+    );
   }
 
   const stageIndex = JOB_ACTIVE_STAGES.indexOf(

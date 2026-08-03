@@ -15,17 +15,26 @@ export default function LoginPage() {
     e.preventDefault();
     setLoading(true);
     setError(null);
-    const supabase = createClient();
-    const { error: signInError } = await supabase.auth.signInWithPassword({
-      email,
-      password,
-    });
-    if (signInError) {
-      setError(signInError.message);
+    try {
+      const supabase = createClient();
+      const { error: signInError } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      });
+      if (signInError) {
+        setError(signInError.message);
+        return;
+      }
+      window.location.href = "/dashboard";
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Sign-in failed. Check your connection and try again."
+      );
+    } finally {
       setLoading(false);
-      return;
     }
-    window.location.href = "/dashboard";
   }
 
   async function handleForgotPassword(e: React.MouseEvent) {

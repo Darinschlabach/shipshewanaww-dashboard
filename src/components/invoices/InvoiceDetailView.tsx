@@ -16,7 +16,6 @@ import Button from "@/components/Button";
 import ConfirmModal from "@/components/ConfirmModal";
 import Modal from "@/components/Modal";
 import { COMPANY } from "@/lib/company";
-import { downloadInvoicePdf } from "@/lib/download-invoice-pdf";
 import {
   buildInvoiceDetail,
   formatInvoiceDisplayNumber,
@@ -592,13 +591,21 @@ function InvoicePreviewPanel({
   async function handleDownloadPdf() {
     setDownloadingPdf(true);
     setPdfError(null);
-    const { error } = await downloadInvoicePdf({
-      invoice,
-      meta,
-      lineItems,
-    });
-    if (error) setPdfError(error);
-    setDownloadingPdf(false);
+    try {
+      const { downloadInvoicePdf } = await import("@/lib/download-invoice-pdf");
+      const { error } = await downloadInvoicePdf({
+        invoice,
+        meta,
+        lineItems,
+      });
+      if (error) setPdfError(error);
+    } catch (err) {
+      setPdfError(
+        err instanceof Error ? err.message : "Could not prepare PDF."
+      );
+    } finally {
+      setDownloadingPdf(false);
+    }
   }
 
   return (

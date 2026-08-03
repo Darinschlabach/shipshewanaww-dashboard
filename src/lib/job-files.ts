@@ -41,29 +41,36 @@ export async function listJobFiles(jobId: string): Promise<{
   }
 
   const rows = (data as JobFileRow[]) ?? [];
-  const files: CompanyFile[] = [];
 
-  for (const row of rows) {
-    const { data: signed, error: signError } = await supabase.storage
-      .from("job-files")
-      .createSignedUrl(row.storage_path, 60 * 60 * 24);
+  const files = await Promise.all(
+    rows.map(async (row) => {
+      let url: string | null = null;
+      try {
+        const { data: signed, error: signError } = await supabase.storage
+          .from("job-files")
+          .createSignedUrl(row.storage_path, 60 * 60 * 24);
+        url = signError ? null : (signed?.signedUrl ?? null);
+      } catch {
+        url = null;
+      }
 
-    files.push({
-      id: row.id,
-      name: row.name,
-      category: "Shop Resources",
-      modifiedAt: row.created_at,
-      size: formatFileSize(Number(row.size_bytes) || 0),
-      type: row.file_type,
-      uploadedBy: row.uploaded_by_name,
-      uploaderInitials: getInitials(row.uploaded_by_name),
-      starred: false,
-      isFolder: false,
-      jobId: row.job_id,
-      drawingCategory: row.drawing_category,
-      url: signError ? null : (signed?.signedUrl ?? null),
-    });
-  }
+      return {
+        id: row.id,
+        name: row.name,
+        category: "Shop Resources" as const,
+        modifiedAt: row.created_at,
+        size: formatFileSize(Number(row.size_bytes) || 0),
+        type: row.file_type,
+        uploadedBy: row.uploaded_by_name,
+        uploaderInitials: getInitials(row.uploaded_by_name),
+        starred: false,
+        isFolder: false,
+        jobId: row.job_id,
+        drawingCategory: row.drawing_category,
+        url,
+      } satisfies CompanyFile;
+    })
+  );
 
   return { files, error: null };
 }

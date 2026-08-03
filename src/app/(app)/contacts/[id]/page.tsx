@@ -77,25 +77,51 @@ export default function ContactDetailPage() {
     });
   }, []);
 
-  const load = useCallback(async () => {
-    const supabase = createClient();
-    const [{ data: c }, { data: p }] = await Promise.all([
-      supabase.from("contacts").select("*").eq("id", id).single(),
-      supabase
-        .from("contact_people")
-        .select("*")
-        .eq("contact_id", id)
-        .order("name"),
-    ]);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
-    const contactData = c as Contact;
-    setContact(contactData);
-    setPeople((p as ContactPerson[]) ?? []);
-    syncFormFromContact(contactData);
+  const load = useCallback(async () => {
+    setLoading(true);
+    setLoadError(null);
+    try {
+      const supabase = createClient();
+      const [{ data: c, error: contactError }, { data: p }] = await Promise.all([
+        supabase.from("contacts").select("*").eq("id", id).maybeSingle(),
+        supabase
+          .from("contact_people")
+          .select("*")
+          .eq("contact_id", id)
+          .order("name"),
+      ]);
+
+      if (contactError) {
+        setLoadError(contactError.message);
+        setContact(null);
+        return;
+      }
+
+      if (!c) {
+        setContact(null);
+        return;
+      }
+
+      const contactData = c as Contact;
+      setContact(contactData);
+      setPeople((p as ContactPerson[]) ?? []);
+      syncFormFromContact(contactData);
+    } catch (err) {
+      console.error("Contact detail load failed:", err);
+      setLoadError(
+        err instanceof Error ? err.message : "Could not load contact."
+      );
+      setContact(null);
+    } finally {
+      setLoading(false);
+    }
   }, [id, syncFormFromContact]);
 
   useEffect(() => {
-    load();
+    void load();
   }, [load]);
 
   async function handleSaveContact(e: React.FormEvent) {
@@ -216,8 +242,22 @@ export default function ContactDetailPage() {
     load();
   }
 
-  if (!contact) {
+  if (loading) {
     return <p className="text-gray-500">Loading…</p>;
+  }
+
+  if (!contact) {
+    return (
+      <div>
+        <p className="text-gray-500">{loadError || "Contact not found."}</p>
+        <Link
+          href="/contacts"
+          className="mt-2 inline-block text-sm text-burgundy hover:underline"
+        >
+          Back to Contacts
+        </Link>
+      </div>
+    );
   }
 
   return (

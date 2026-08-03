@@ -327,46 +327,57 @@ export default function DashboardView() {
   const [calendarEvents, setCalendarEvents] = useState<CalendarEvent[]>([]);
 
   const load = useCallback(async () => {
-    const supabase = createClient();
-    const rangeStart = new Date().toISOString().slice(0, 10);
-    const rangeEnd = addDays(new Date(), 21).toISOString().slice(0, 10);
+    setLoading(true);
+    try {
+      const supabase = createClient();
+      const rangeStart = new Date().toISOString().slice(0, 10);
+      const rangeEnd = addDays(new Date(), 21).toISOString().slice(0, 10);
 
-    const [
-      { data: userData },
-      { data: leadsData },
-      { data: jobsData },
-      { data: ordersData },
-      { data: invoiceData },
-      { data: calData },
-    ] = await Promise.all([
-      supabase.auth.getUser(),
-      supabase.from("leads").select("*").neq("status", "converted"),
-      supabase.from("jobs").select("*"),
-      supabase.from("purchase_orders").select("*, jobs(id, name)"),
-      supabase.from("invoices").select("*").order("invoice_date", { ascending: false }),
-      supabase
-        .from("calendar_events")
-        .select("*, jobs(id, name, created_at, contacts(name))")
-        .gte("event_date", rangeStart)
-        .lte("event_date", rangeEnd)
-        .order("event_date"),
-    ]);
+      const [
+        { data: userData },
+        { data: leadsData },
+        { data: jobsData },
+        { data: ordersData },
+        { data: invoiceData },
+        { data: calData },
+      ] = await Promise.all([
+        supabase.auth.getUser(),
+        supabase.from("leads").select("*").neq("status", "converted"),
+        supabase.from("jobs").select("*"),
+        supabase.from("purchase_orders").select("*, jobs(id, name)"),
+        supabase
+          .from("invoices")
+          .select("*")
+          .order("invoice_date", { ascending: false }),
+        supabase
+          .from("calendar_events")
+          .select("*, jobs(id, name, created_at, contacts(name))")
+          .gte("event_date", rangeStart)
+          .lte("event_date", rangeEnd)
+          .order("event_date"),
+      ]);
 
-    if (userData.user) {
-      const { data: profile } = await supabase
-        .from("profiles")
-        .select("full_name")
-        .eq("id", userData.user.id)
-        .maybeSingle();
-      setUserName(profile?.full_name ?? userData.user.email?.split("@")[0] ?? null);
+      if (userData.user) {
+        const { data: profile } = await supabase
+          .from("profiles")
+          .select("full_name")
+          .eq("id", userData.user.id)
+          .maybeSingle();
+        setUserName(
+          profile?.full_name ?? userData.user.email?.split("@")[0] ?? null
+        );
+      }
+
+      setLeads((leadsData as Lead[]) ?? []);
+      setJobs((jobsData as Job[]) ?? []);
+      setOrders((ordersData as PurchaseOrder[]) ?? []);
+      setInvoices((invoiceData as InvoiceRow[]) ?? []);
+      setCalendarEvents((calData as CalendarEvent[]) ?? []);
+    } catch (err) {
+      console.error("Dashboard load failed:", err);
+    } finally {
+      setLoading(false);
     }
-
-    setLeads((leadsData as Lead[]) ?? []);
-    setJobs((jobsData as Job[]) ?? []);
-    setOrders((ordersData as PurchaseOrder[]) ?? []);
-    setInvoices((invoiceData as InvoiceRow[]) ?? []);
-    setCalendarEvents((calData as CalendarEvent[]) ?? []);
-    setLoading(false);
   }, []);
 
   useEffect(() => {
