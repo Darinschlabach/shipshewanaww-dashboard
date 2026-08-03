@@ -320,6 +320,7 @@ function buildTodayAgenda(
 
 export default function DashboardView() {
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [userName, setUserName] = useState<string | null>(null);
   const [leads, setLeads] = useState<Lead[]>([]);
   const [jobs, setJobs] = useState<Job[]>([]);
@@ -329,6 +330,7 @@ export default function DashboardView() {
 
   const load = useCallback(async () => {
     setLoading(true);
+    setLoadError(null);
     try {
       const supabase = createClient();
       const rangeStart = new Date().toISOString().slice(0, 10);
@@ -388,14 +390,29 @@ export default function DashboardView() {
       setCalendarEvents((calData as CalendarEvent[]) ?? []);
     } catch (err) {
       console.error("Dashboard load failed:", err);
+      setLoadError(
+        err instanceof Error
+          ? err.message
+          : "Could not load dashboard. Check your connection and Supabase settings."
+      );
     } finally {
       setLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    load();
+    void load();
   }, [load]);
+
+  // Hard safety net — never leave the spinner up forever.
+  useEffect(() => {
+    if (!loading) return;
+    const t = window.setTimeout(() => {
+      setLoading(false);
+      setLoadError((prev) => prev ?? "Dashboard load took too long.");
+    }, 15_000);
+    return () => window.clearTimeout(t);
+  }, [loading]);
 
   const now = new Date();
   const todayLabel = now.toLocaleDateString("en-US", {
@@ -421,6 +438,22 @@ export default function DashboardView() {
 
   if (loading) {
     return <p className="text-gray-500">Loading dashboard…</p>;
+  }
+
+  if (loadError) {
+    return (
+      <div className="rounded-lg border border-red-200 bg-red-50 p-4">
+        <p className="text-sm font-medium text-red-800">Dashboard could not load</p>
+        <p className="mt-1 text-sm text-red-700">{loadError}</p>
+        <button
+          type="button"
+          onClick={() => void load()}
+          className="mt-3 rounded-md border border-red-300 bg-white px-3 py-1.5 text-sm font-medium text-red-800 hover:bg-red-50"
+        >
+          Retry
+        </button>
+      </div>
+    );
   }
 
   return (
