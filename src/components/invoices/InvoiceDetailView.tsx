@@ -16,6 +16,7 @@ import Button from "@/components/Button";
 import ConfirmModal from "@/components/ConfirmModal";
 import Modal from "@/components/Modal";
 import { COMPANY } from "@/lib/company";
+import { downloadInvoicePdf } from "@/lib/download-invoice-pdf";
 import {
   buildInvoiceDetail,
   formatInvoiceDisplayNumber,
@@ -578,11 +579,27 @@ type PaymentRow = InvoicePayment & {
 function InvoicePreviewPanel({
   invoice,
   meta,
+  lineItems,
 }: {
   invoice: InvoiceDetailRow;
   meta: InvoiceDetailMeta;
+  lineItems: InvoiceLineItem[];
 }) {
   const invoiceTotal = Number(invoice.amount) || 0;
+  const [downloadingPdf, setDownloadingPdf] = useState(false);
+  const [pdfError, setPdfError] = useState<string | null>(null);
+
+  async function handleDownloadPdf() {
+    setDownloadingPdf(true);
+    setPdfError(null);
+    const { error } = await downloadInvoicePdf({
+      invoice,
+      meta,
+      lineItems,
+    });
+    if (error) setPdfError(error);
+    setDownloadingPdf(false);
+  }
 
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden">
@@ -614,12 +631,22 @@ function InvoicePreviewPanel({
         </p>
       </div>
 
+      {pdfError ? (
+        <p className="mb-2 shrink-0 text-center text-xs text-red-600">
+          {pdfError}
+        </p>
+      ) : null}
+
       <button
         type="button"
-        className="flex w-full shrink-0 items-center justify-center gap-2 rounded-md border border-gray-300 py-2.5 text-sm font-medium text-gray-800 hover:bg-gray-50"
+        onClick={() => {
+          void handleDownloadPdf();
+        }}
+        disabled={downloadingPdf}
+        className="flex w-full shrink-0 items-center justify-center gap-2 rounded-md border border-gray-300 py-2.5 text-sm font-medium text-gray-800 hover:bg-gray-50 disabled:opacity-60"
       >
         <IconFileTypePdf size={18} />
-        Download PDF
+        {downloadingPdf ? "Preparing PDF…" : "Download PDF"}
       </button>
     </div>
   );
@@ -1333,7 +1360,11 @@ export default function InvoiceDetailView({
             </div>
             <div className="flex min-h-0 min-w-0 flex-col">
               <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border border-gray-200 bg-white p-4">
-                <InvoicePreviewPanel invoice={invoice} meta={meta} />
+                <InvoicePreviewPanel
+                  invoice={invoice}
+                  meta={meta}
+                  lineItems={lineItems}
+                />
               </div>
             </div>
           </div>

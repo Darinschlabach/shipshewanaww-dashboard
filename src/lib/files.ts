@@ -8,7 +8,12 @@ export type CompanyFileCategory =
 
 export type FileType = "pdf" | "image" | "spreadsheet" | "folder" | "doc";
 
-export type FilesTab = "all" | "folders" | "shared" | "recent" | "trash";
+export type CompanyFilesTab = "all" | "folders" | "shared" | "recent" | "trash";
+export type JobFilesTab =
+  | "provided_drawings"
+  | "production_drawings"
+  | "misc";
+export type FilesTab = CompanyFilesTab | JobFilesTab;
 
 export interface CompanyFile {
   id: string;
@@ -24,6 +29,10 @@ export interface CompanyFile {
   jobId?: string | null;
   shared?: boolean;
   trashed?: boolean;
+  /** Job Files tab grouping */
+  drawingCategory?: JobFilesTab;
+  /** Local blob URL or remote URL for opening the file */
+  url?: string | null;
 }
 
 export interface FileCategoryCard {
@@ -290,6 +299,7 @@ export const MOCK_FILES: CompanyFile[] = [
     starred: false,
     isFolder: true,
     jobId: "b0000001-0000-4000-8000-000000000001",
+    drawingCategory: "misc",
   },
   {
     id: "12",
@@ -304,6 +314,7 @@ export const MOCK_FILES: CompanyFile[] = [
     isFolder: false,
     shared: true,
     jobId: "b0000001-0000-4000-8000-000000000001",
+    drawingCategory: "provided_drawings",
   },
 ];
 
@@ -338,6 +349,15 @@ export function filterCompanyFiles(
     case "trash":
       list = files.filter((f) => f.trashed);
       break;
+    case "provided_drawings":
+    case "production_drawings":
+    case "misc":
+      list = list
+        .filter((f) => (f.drawingCategory ?? "misc") === opts.tab)
+        .sort((a, b) =>
+          a.name.localeCompare(b.name, undefined, { sensitivity: "base" })
+        );
+      break;
     default:
       break;
   }
@@ -364,9 +384,73 @@ export function formatFileDateTime(iso: string): string {
   });
 }
 
+export function formatFileSize(bytes: number): string {
+  if (!Number.isFinite(bytes) || bytes < 0) return "—";
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(bytes < 10 * 1024 ? 1 : 0)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(bytes < 10 * 1024 * 1024 ? 1 : 0)} MB`;
+}
+
+export function fileTypeFromFile(file: File): FileType {
+  const name = file.name.toLowerCase();
+  const mime = file.type.toLowerCase();
+  if (mime.startsWith("image/") || /\.(png|jpe?g|gif|webp|bmp|svg)$/.test(name)) {
+    return "image";
+  }
+  if (
+    mime.includes("spreadsheet") ||
+    mime.includes("excel") ||
+    /\.(xlsx?|csv)$/.test(name)
+  ) {
+    return "spreadsheet";
+  }
+  if (mime === "application/pdf" || name.endsWith(".pdf")) return "pdf";
+  if (
+    mime.includes("word") ||
+    /\.(docx?|rtf|txt)$/.test(name)
+  ) {
+    return "doc";
+  }
+  return "doc";
+}
+
+export const JOB_DRAWING_LABELS: Record<JobFilesTab, string> = {
+  provided_drawings: "Provided Drawings",
+  production_drawings: "Production Drawings",
+  misc: "Misc.",
+};
+
+export function createJobUploadedFile(opts: {
+  file: File;
+  jobId: string;
+  drawingCategory: JobFilesTab;
+  uploadedBy: string;
+}): CompanyFile {
+  const { file, jobId, drawingCategory, uploadedBy } = opts;
+  return {
+    id:
+      typeof crypto !== "undefined" && "randomUUID" in crypto
+        ? crypto.randomUUID()
+        : `upload-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+    name: file.name,
+    category: "Shop Resources",
+    modifiedAt: new Date().toISOString(),
+    size: formatFileSize(file.size),
+    type: fileTypeFromFile(file),
+    uploadedBy,
+    uploaderInitials: getInitials(uploadedBy),
+    starred: false,
+    isFolder: false,
+    jobId,
+    drawingCategory,
+    url: URL.createObjectURL(file),
+  };
+}
+
 export function getInitials(name: string): string {
   return name
     .split(/\s+/)
+    .filter(Boolean)
     .map((p) => p[0])
     .join("")
     .slice(0, 2)

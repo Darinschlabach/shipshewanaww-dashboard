@@ -8,10 +8,12 @@ interface FilesTabProps {
 
 export default function FilesTab({ jobId }: FilesTabProps) {
   return (
-    <FilesView
-      jobId={jobId}
-      showSidebar={false}
-      showCategoryCards={false}
-    />
+    <div className="flex h-full min-h-0 flex-col">
+      <FilesView
+        jobId={jobId}
+        showSidebar={false}
+        showCategoryCards={false}
+      />
+    </div>
   );
 }

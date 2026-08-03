@@ -18,7 +18,6 @@ import RoomsTab from "@/components/jobs/RoomsTab";
 import FilesTab from "@/components/jobs/FilesTab";
 import FinancialsTab from "@/components/jobs/FinancialsTab";
 import ScheduleTab from "@/components/jobs/ScheduleTab";
-import TasksTab from "@/components/jobs/TasksTab";
 import { getJobStageDisplay } from "@/lib/jobs";
 import {
   formatCurrencyFull,
@@ -40,7 +39,6 @@ const JOB_DETAIL_TABS = [
   "Schedule",
   "Financials",
   "Files",
-  "Tasks",
 ] as const;
 
 type JobDetailTab = (typeof JOB_DETAIL_TABS)[number];
@@ -223,8 +221,7 @@ export default function JobDetailPage() {
     activeTab === "Purchasing" ||
     activeTab === "Schedule" ||
     activeTab === "Financials" ||
-    activeTab === "Files" ||
-    activeTab === "Tasks";
+    activeTab === "Files";
   const hideJobHeaderForPurchasing =
     activeTab === "Purchasing" && purchasingFullScreenMode;
 
@@ -339,11 +336,6 @@ export default function JobDetailPage() {
               }`}
             >
               {tab}
-              {tab === "Tasks" && (
-                <span className="rounded-full bg-burgundy px-1.5 py-0.5 text-[10px] font-semibold text-white">
-                  12
-                </span>
-              )}
             </button>
           ))}
         </div>
@@ -388,10 +380,6 @@ export default function JobDetailPage() {
       ) : activeTab === "Files" ? (
         <div className="min-h-0 flex-1">
           <FilesTab jobId={id} />
-        </div>
-      ) : activeTab === "Tasks" ? (
-        <div className="min-h-0 flex-1">
-          <TasksTab jobId={id} />
         </div>
       ) : activeTab === "Overview" ? (
         <>
