@@ -15,6 +15,7 @@ import {
   IconUsers,
 } from "@tabler/icons-react";
 import { createClient } from "@/lib/supabase/client";
+import { withTimeout } from "@/lib/async";
 import {
   addDays,
   enrichCalendarEvent,
@@ -340,32 +341,44 @@ export default function DashboardView() {
         { data: ordersData },
         { data: invoiceData },
         { data: calData },
-      ] = await Promise.all([
-        supabase.auth.getUser(),
-        supabase.from("leads").select("*").neq("status", "converted"),
-        supabase.from("jobs").select("*"),
-        supabase.from("purchase_orders").select("*, jobs(id, name)"),
-        supabase
-          .from("invoices")
-          .select("*")
-          .order("invoice_date", { ascending: false }),
-        supabase
-          .from("calendar_events")
-          .select("*, jobs(id, name, created_at, contacts(name))")
-          .gte("event_date", rangeStart)
-          .lte("event_date", rangeEnd)
-          .order("event_date"),
-      ]);
+      ] = await withTimeout(
+        Promise.all([
+          supabase.auth.getUser(),
+          supabase.from("leads").select("*").neq("status", "converted"),
+          supabase.from("jobs").select("*"),
+          supabase.from("purchase_orders").select("*, jobs(id, name)"),
+          supabase
+            .from("invoices")
+            .select("*")
+            .order("invoice_date", { ascending: false }),
+          supabase
+            .from("calendar_events")
+            .select("*, jobs(id, name, created_at, contacts(name))")
+            .gte("event_date", rangeStart)
+            .lte("event_date", rangeEnd)
+            .order("event_date"),
+        ]),
+        12_000,
+        "Dashboard data"
+      );
 
       if (userData.user) {
-        const { data: profile } = await supabase
-          .from("profiles")
-          .select("full_name")
-          .eq("id", userData.user.id)
-          .maybeSingle();
-        setUserName(
-          profile?.full_name ?? userData.user.email?.split("@")[0] ?? null
-        );
+        try {
+          const { data: profile } = await withTimeout(
+            supabase
+              .from("profiles")
+              .select("full_name")
+              .eq("id", userData.user.id)
+              .maybeSingle(),
+            5_000,
+            "Profile"
+          );
+          setUserName(
+            profile?.full_name ?? userData.user.email?.split("@")[0] ?? null
+          );
+        } catch {
+          setUserName(userData.user.email?.split("@")[0] ?? null);
+        }
       }
 
       setLeads((leadsData as Lead[]) ?? []);

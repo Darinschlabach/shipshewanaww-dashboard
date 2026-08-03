@@ -1,20 +1,30 @@
 import { createServerClient, type CookieOptions } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
-const AUTH_TIMEOUT_MS = 8_000;
+const AUTH_TIMEOUT_MS = 5_000;
 
-async function withTimeout<T>(
-  promise: Promise<T>,
-  ms: number
-): Promise<T | null> {
+type AuthResult = Awaited<
+  ReturnType<ReturnType<typeof createServerClient>["auth"]["getUser"]>
+>;
+
+async function getUserWithTimeout(
+  getUser: () => Promise<AuthResult>
+): Promise<{ user: AuthResult["data"]["user"]; timedOut: boolean }> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
-    return await Promise.race([
-      promise,
-      new Promise<null>((resolve) => {
-        timer = setTimeout(() => resolve(null), ms);
+    const result = await Promise.race([
+      getUser().then((r) => ({ kind: "ok" as const, r })),
+      new Promise<{ kind: "timeout" }>((resolve) => {
+        timer = setTimeout(() => resolve({ kind: "timeout" }), AUTH_TIMEOUT_MS);
       }),
     ]);
+    if (result.kind === "timeout") {
+      return { user: null, timedOut: true };
+    }
+    return { user: result.r.data.user, timedOut: false };
+  } catch (err) {
+    console.error("Supabase auth.getUser failed:", err);
+    return { user: null, timedOut: false };
   } finally {
     if (timer) clearTimeout(timer);
   }
@@ -68,11 +78,18 @@ export async function updateSession(request: NextRequest) {
     },
   });
 
-  const authResult = await withTimeout(
-    supabase.auth.getUser(),
-    AUTH_TIMEOUT_MS
+  const { user, timedOut } = await getUserWithTimeout(() =>
+    supabase.auth.getUser()
   );
-  const user = authResult?.data?.user ?? null;
+
+  // Fail open on timeout: never redirect either direction, or a slow
+  // Supabase response causes /dashboard ↔ /login redirect loops (browser spinner).
+  if (timedOut) {
+    console.warn(
+      `Supabase auth.getUser timed out after ${AUTH_TIMEOUT_MS}ms — allowing request through`
+    );
+    return supabaseResponse;
+  }
 
   const pathname = request.nextUrl.pathname;
   const isPublicRoute =

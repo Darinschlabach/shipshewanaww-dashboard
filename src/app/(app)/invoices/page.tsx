@@ -12,6 +12,7 @@ import {
   IconTrash,
 } from "@tabler/icons-react";
 import { createClient } from "@/lib/supabase/client";
+import { withTimeout } from "@/lib/async";
 import PageHeader from "@/components/PageHeader";
 import Modal from "@/components/Modal";
 import Button from "@/components/Button";
@@ -83,41 +84,51 @@ export default function InvoicesPage() {
   const [form, setForm] = useState(emptyInvoiceForm);
 
   const load = useCallback(async () => {
-    const supabase = createClient();
-    const [
-      { data: invoiceData, error: invoiceError },
-      { data: jobsData },
-      { data: contactsData },
-    ] = await Promise.all([
-      supabase
-        .from("invoices")
-        .select("*, jobs(id, name, created_at)")
-        .order("invoice_date", { ascending: false }),
-      supabase.from("jobs").select("*, contacts(*)").order("name"),
-      supabase.from("contacts").select("*").order("name"),
-    ]);
+    setLoading(true);
+    try {
+      const supabase = createClient();
+      const [
+        { data: invoiceData, error: invoiceError },
+        { data: jobsData },
+        { data: contactsData },
+      ] = await withTimeout(
+        Promise.all([
+          supabase
+            .from("invoices")
+            .select("*, jobs(id, name, created_at)")
+            .order("invoice_date", { ascending: false }),
+          supabase.from("jobs").select("*, contacts(*)").order("name"),
+          supabase.from("contacts").select("*").order("name"),
+        ]),
+        12_000,
+        "Invoices list"
+      );
 
-    let rows = (invoiceData as InvoiceRow[]) ?? [];
+      let rows = (invoiceData as InvoiceRow[]) ?? [];
 
-    if (invoiceError) {
-      const { data: plainInvoices, error: plainError } = await supabase
-        .from("invoices")
-        .select("*")
-        .order("invoice_date", { ascending: false });
+      if (invoiceError) {
+        const { data: plainInvoices, error: plainError } = await supabase
+          .from("invoices")
+          .select("*")
+          .order("invoice_date", { ascending: false });
 
-      if (!plainError && plainInvoices) {
-        rows = plainInvoices as InvoiceRow[];
-      } else {
-        rows = buildInvoicesFromJobs(
-          (jobsData as (Job & { contacts: Contact | null })[]) ?? []
-        );
+        if (!plainError && plainInvoices) {
+          rows = plainInvoices as InvoiceRow[];
+        } else {
+          rows = buildInvoicesFromJobs(
+            (jobsData as (Job & { contacts: Contact | null })[]) ?? []
+          );
+        }
       }
-    }
 
-    setInvoices(rows);
-    setJobs((jobsData as JobRow[]) ?? []);
-    setContacts((contactsData as Contact[]) ?? []);
-    setLoading(false);
+      setInvoices(rows);
+      setJobs((jobsData as JobRow[]) ?? []);
+      setContacts((contactsData as Contact[]) ?? []);
+    } catch (err) {
+      console.error("Invoices load failed:", err);
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
   useEffect(() => {

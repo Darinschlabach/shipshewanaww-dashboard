@@ -16,6 +16,7 @@ import {
   IconUsers,
 } from "@tabler/icons-react";
 import { createClient } from "@/lib/supabase/client";
+import { withTimeout } from "@/lib/async";
 import PageHeader from "@/components/PageHeader";
 import ConfirmModal from "@/components/ConfirmModal";
 import FilterBar from "@/components/FilterBar";
@@ -93,26 +94,36 @@ export default function JobsPage() {
   });
 
   const load = useCallback(async () => {
-    const supabase = createClient();
-    const [{ data: jobsData }, { data: contactsData }, { data: boardData }] =
-      await Promise.all([
-        supabase
-          .from("jobs")
-          .select("*, contacts(*)")
-          .order("updated_at", { ascending: false }),
-        supabase.from("contacts").select("*").order("name"),
-        supabase.from("production_jobs").select("job_id, kanban_status"),
-      ]);
-    setJobs((jobsData as JobRow[]) ?? []);
-    setContacts((contactsData as Contact[]) ?? []);
-    setBoardStatusByJobId(
-      Object.fromEntries(
-        ((boardData as { job_id: string; kanban_status: string }[]) ?? []).map(
-          (row) => [row.job_id, row.kanban_status]
+    setLoading(true);
+    try {
+      const supabase = createClient();
+      const [{ data: jobsData }, { data: contactsData }, { data: boardData }] =
+        await withTimeout(
+          Promise.all([
+            supabase
+              .from("jobs")
+              .select("*, contacts(*)")
+              .order("updated_at", { ascending: false }),
+            supabase.from("contacts").select("*").order("name"),
+            supabase.from("production_jobs").select("job_id, kanban_status"),
+          ]),
+          12_000,
+          "Jobs list"
+        );
+      setJobs((jobsData as JobRow[]) ?? []);
+      setContacts((contactsData as Contact[]) ?? []);
+      setBoardStatusByJobId(
+        Object.fromEntries(
+          ((boardData as { job_id: string; kanban_status: string }[]) ?? []).map(
+            (row) => [row.job_id, row.kanban_status]
+          )
         )
-      )
-    );
-    setLoading(false);
+      );
+    } catch (err) {
+      console.error("Jobs load failed:", err);
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
   useEffect(() => {
