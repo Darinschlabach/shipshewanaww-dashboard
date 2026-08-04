@@ -1,6 +1,6 @@
 /** Race a promise against a timeout. Rejects on timeout. */
 export async function withTimeout<T>(
-  promise: Promise<T>,
+  promise: PromiseLike<T>,
   ms: number,
   label = "Operation"
 ): Promise<T> {

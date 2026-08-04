@@ -366,7 +366,7 @@ export default function DashboardView() {
 
       if (userData.user) {
         try {
-          const { data: profile } = await withTimeout(
+          const profileResult = await withTimeout(
             supabase
               .from("profiles")
               .select("full_name")
@@ -375,6 +375,7 @@ export default function DashboardView() {
             5_000,
             "Profile"
           );
+          const profile = profileResult.data;
           setUserName(
             profile?.full_name ?? userData.user.email?.split("@")[0] ?? null
           );
