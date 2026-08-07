@@ -7,6 +7,7 @@ import { createClient } from "@/lib/supabase/client";
 import AddressAutocomplete from "@/components/AddressAutocomplete";
 import AssociatedPersonForm from "@/components/AssociatedPersonForm";
 import Button from "@/components/Button";
+import QuickBooksSyncStatusPanel from "@/components/integrations/QuickBooksSyncStatusPanel";
 import { getAvatarColor, getInitialsFromName } from "@/lib/utils";
 import {
   CONTACT_TYPES,
@@ -128,10 +129,10 @@ export default function ContactDetailPage() {
     e.preventDefault();
     if (!contact) return;
     setSavingContact(true);
-    const supabase = createClient();
-    const { data } = await supabase
-      .from("contacts")
-      .update({
+    const res = await fetch(`/api/contacts/${contact.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
         name: form.name.trim(),
         email: form.email || null,
         phone: form.phone || null,
@@ -142,15 +143,14 @@ export default function ContactDetailPage() {
             ? form.birthday
             : null,
         contact_type: form.contact_type,
-      })
-      .eq("id", contact.id)
-      .select()
-      .single();
-
-    if (data) {
-      const updated = data as Contact;
-      setContact(updated);
-      syncFormFromContact(updated);
+      }),
+    });
+    const json = (await res.json().catch(() => ({}))) as {
+      data?: Contact;
+    };
+    if (json.data) {
+      setContact(json.data);
+      syncFormFromContact(json.data);
     }
     setSavingContact(false);
     setEditingContact(false);
@@ -227,9 +227,14 @@ export default function ContactDetailPage() {
     }
 
     setDeletingContact(true);
-    const supabase = createClient();
-    await supabase.from("contacts").delete().eq("id", contact.id);
-    router.push("/contacts");
+    const res = await fetch(`/api/contacts/${contact.id}`, {
+      method: "DELETE",
+    });
+    if (res.ok) {
+      router.push("/contacts");
+      return;
+    }
+    setDeletingContact(false);
   }
 
   async function handleDeletePerson(personId: string) {
@@ -293,6 +298,7 @@ export default function ContactDetailPage() {
 
       <div className="grid grid-cols-1 gap-8 lg:grid-cols-2 lg:gap-10">
         {/* Left — Contact details */}
+        <div className="space-y-6">
         <section className="rounded-lg border border-gray-200 bg-white p-6">
           <div className="mb-5 flex items-center justify-between gap-4">
             <h2 className="text-sm font-medium uppercase tracking-wide text-gray-500">
@@ -414,6 +420,16 @@ export default function ContactDetailPage() {
             </div>
           )}
         </section>
+
+        <QuickBooksSyncStatusPanel
+          entity="customer"
+          fields={contact}
+          syncPath={`/api/contacts/${contact.id}/sync`}
+          onSynced={(next) =>
+            setContact((prev) => (prev ? { ...prev, ...next } : prev))
+          }
+        />
+        </div>
 
         {/* Right — Associated people */}
         <section className="rounded-lg border border-gray-200 bg-white p-6">

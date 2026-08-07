@@ -2,8 +2,9 @@ import type {
   InvoiceDetailMeta,
   InvoiceDetailRow,
 } from "@/lib/invoice-detail";
-import { formatInvoiceNumber } from "@/lib/invoices";
+import { formatInvoiceNumber, isSyntheticInvoiceId } from "@/lib/invoices";
 import type { QuoteDocumentData, QuoteDocumentRoom } from "@/lib/quote-document";
+import { createClient } from "@/lib/supabase/client";
 
 export type InvoiceDocumentLineItem = {
   id: string;
@@ -12,19 +13,19 @@ export type InvoiceDocumentLineItem = {
   price: number;
 };
 
+export type InvoiceDocumentPayment = {
+  id: string;
+  amount: number;
+  paidAt: string;
+  method: string;
+};
+
 function daysBetween(start: string, end: string): number {
   const a = new Date(`${start}T12:00:00`);
   const b = new Date(`${end}T12:00:00`);
   if (Number.isNaN(a.getTime()) || Number.isNaN(b.getTime())) return 30;
   const diff = Math.round((b.getTime() - a.getTime()) / (1000 * 60 * 60 * 24));
   return diff > 0 ? diff : 30;
-}
-
-function isDeliveryLine(item: InvoiceDocumentLineItem): boolean {
-  return (
-    item.id === "quote-delivery" ||
-    /delivery/i.test(item.description.trim())
-  );
 }
 
 function lineItemsToRooms(
@@ -37,7 +38,7 @@ function lineItemsToRooms(
     finish: "—",
     doorStyle: "—",
     cabinetMultiplier: "—",
-    itemCount: Math.max(1, item.qty),
+    itemCount: item.qty,
     roomTotal: item.qty * item.price,
     items: [],
   }));
@@ -54,15 +55,8 @@ export function buildInvoiceDocumentData(
     invoice.created_at.slice(0, 10);
   const dueDate = invoice.due_date?.slice(0, 10) || invoiceDate;
 
-  const deliveryItem = lineItems.find(isDeliveryLine);
-  const deliveryTotal = deliveryItem
-    ? deliveryItem.qty * deliveryItem.price
-    : 0;
-  const projectItems = lineItems.filter((item) => !isDeliveryLine(item));
-  const rooms = lineItemsToRooms(projectItems);
+  const rooms = lineItemsToRooms(lineItems);
   const roomsTotal = rooms.reduce((sum, room) => sum + room.roomTotal, 0);
-  const servicesTotal = deliveryTotal;
-  const quoteTotal = roomsTotal + servicesTotal;
 
   return {
     quoteNumber: formatInvoiceNumber(invoice),
@@ -79,9 +73,51 @@ export function buildInvoiceDocumentData(
     rooms,
     services: [],
     roomsTotal,
-    servicesTotal,
-    deliveryTotal,
-    quoteTotal,
+    servicesTotal: 0,
+    deliveryTotal: 0,
+    quoteTotal: roomsTotal,
     customerMessage: "",
   };
+}
+
+/** Payments for this invoice, or all invoices on the same job when linked. */
+export async function fetchInvoiceDocumentPayments(
+  invoice: Pick<InvoiceDetailRow, "id" | "job_id">
+): Promise<InvoiceDocumentPayment[]> {
+  try {
+    if (isSyntheticInvoiceId(invoice.id)) return [];
+
+    const supabase = createClient();
+    let invoiceIds = [invoice.id];
+
+    if (invoice.job_id) {
+      const { data: jobInvoices, error: jobError } = await supabase
+        .from("invoices")
+        .select("id")
+        .eq("job_id", invoice.job_id);
+
+      if (!jobError && jobInvoices && jobInvoices.length > 0) {
+        invoiceIds = jobInvoices
+          .map((row) => row.id as string)
+          .filter(Boolean);
+      }
+    }
+
+    const { data, error } = await supabase
+      .from("invoice_payments")
+      .select("id, amount, paid_at, method")
+      .in("invoice_id", invoiceIds)
+      .order("paid_at", { ascending: true });
+
+    if (error || !data) return [];
+
+    return data.map((row) => ({
+      id: row.id as string,
+      amount: Number(row.amount) || 0,
+      paidAt: String(row.paid_at).slice(0, 10),
+      method: (row.method as string | null)?.trim() || "—",
+    }));
+  } catch {
+    return [];
+  }
 }

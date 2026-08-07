@@ -12,11 +12,14 @@ import type {
 } from "@/lib/invoice-detail";
 import {
   buildInvoiceDocumentData,
+  fetchInvoiceDocumentPayments,
   type InvoiceDocumentLineItem,
 } from "@/lib/invoice-document";
 
 const PAGE_WIDTH_IN = 8.5;
 const PAGE_HEIGHT_IN = 11;
+/** Half of the previous 0.5" quote-style outer margins. */
+const MARGIN_IN = 0.25;
 const RENDER_WIDTH_PX = 816;
 
 function waitForImages(root: HTMLElement): Promise<void> {
@@ -96,23 +99,47 @@ function createPdfIframe(): {
   };
 }
 
-async function renderFullWhitePage(pdf: jsPDF, pageEl: HTMLElement): Promise<void> {
+async function renderPageWithMargins(pdf: jsPDF, pageEl: HTMLElement): Promise<void> {
   const canvas = await html2canvas(pageEl, {
     scale: 2,
     useCORS: true,
     allowTaint: true,
     logging: false,
     backgroundColor: "#ffffff",
-    width: pageEl.offsetWidth,
-    height: pageEl.offsetHeight,
-    windowWidth: pageEl.offsetWidth,
-    windowHeight: pageEl.offsetHeight,
+    width: pageEl.scrollWidth,
+    height: pageEl.scrollHeight,
+    windowWidth: pageEl.scrollWidth,
+    windowHeight: pageEl.scrollHeight,
     scrollX: 0,
     scrollY: 0,
   });
 
   const imgData = canvas.toDataURL("image/jpeg", 0.92);
-  pdf.addImage(imgData, "JPEG", 0, 0, PAGE_WIDTH_IN, PAGE_HEIGHT_IN);
+  const contentWidth = PAGE_WIDTH_IN - MARGIN_IN * 2;
+  const contentHeight = PAGE_HEIGHT_IN - MARGIN_IN * 2;
+  let imgHeight = (canvas.height * contentWidth) / canvas.width;
+
+  if (imgHeight > contentHeight) {
+    const scale = contentHeight / imgHeight;
+    imgHeight = contentHeight;
+    pdf.addImage(
+      imgData,
+      "JPEG",
+      MARGIN_IN,
+      MARGIN_IN,
+      contentWidth * scale,
+      imgHeight
+    );
+  } else {
+    pdf.addImage(
+      imgData,
+      "JPEG",
+      MARGIN_IN,
+      MARGIN_IN,
+      contentWidth,
+      imgHeight
+    );
+  }
 }
 
 export async function downloadInvoicePdf(opts: {
@@ -121,17 +148,22 @@ export async function downloadInvoicePdf(opts: {
   lineItems: InvoiceDocumentLineItem[];
   includeTax?: boolean;
 }): Promise<{ error?: string }> {
-  const data = buildInvoiceDocumentData(
-    opts.invoice,
-    opts.meta,
-    opts.lineItems
-  );
-  const includeTax = opts.includeTax ?? false;
-
   let root: Root | null = null;
   let frame: ReturnType<typeof createPdfIframe> | null = null;
 
   try {
+    const data = buildInvoiceDocumentData(
+      opts.invoice,
+      opts.meta,
+      opts.lineItems
+    );
+    const includeTax = opts.includeTax ?? false;
+    const paymentsCredits = Math.max(
+      0,
+      Number(opts.invoice.amount) - Number(opts.invoice.balance)
+    );
+    const paymentHistory = await fetchInvoiceDocumentPayments(opts.invoice);
+
     frame = createPdfIframe();
     root = createRoot(frame.mount);
 
@@ -140,6 +172,8 @@ export async function downloadInvoicePdf(opts: {
         createElement(InvoicePdfDocument, {
           data,
           includeTax,
+          paymentsCredits,
+          paymentHistory,
         })
       );
     });
@@ -155,20 +189,13 @@ export async function downloadInvoicePdf(opts: {
       return { error: "Invoice document is empty." };
     }
 
-    pages.forEach((pageEl) => {
-      const footer = pageEl.querySelector<HTMLElement>(".invoice-page-number");
-      if (footer) {
-        footer.textContent = "Page 1 of 1";
-      }
-    });
-
     const pdf = new jsPDF({
       unit: "in",
       format: "letter",
       orientation: "portrait",
     });
 
-    await renderFullWhitePage(pdf, pages[0]);
+    await renderPageWithMargins(pdf, pages[0]);
 
     const filename = `${data.quoteNumber.replace(/[^\w-]+/g, "-")}.pdf`;
     pdf.save(filename);

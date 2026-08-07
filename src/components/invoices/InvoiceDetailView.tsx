@@ -15,6 +15,7 @@ import AddressAutocomplete from "@/components/AddressAutocomplete";
 import Button from "@/components/Button";
 import ConfirmModal from "@/components/ConfirmModal";
 import Modal from "@/components/Modal";
+import QuickBooksSyncStatusPanel from "@/components/integrations/QuickBooksSyncStatusPanel";
 import { COMPANY } from "@/lib/company";
 import {
   buildInvoiceDetail,
@@ -60,6 +61,29 @@ function isQuoteSourcedLineItem(id: string): boolean {
 }
 
 function getInvoiceLineItems(invoice: InvoiceDetailRow): InvoiceLineItem[] {
+  const fromDb = (
+    invoice as InvoiceDetailRow & {
+      invoice_line_items?: Array<{
+        id: string;
+        description: string;
+        qty: number;
+        unit_price: number;
+        sort_order?: number;
+      }>;
+    }
+  ).invoice_line_items;
+
+  if (fromDb && fromDb.length > 0) {
+    return [...fromDb]
+      .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0))
+      .map((row) => ({
+        id: row.id,
+        description: row.description || "",
+        qty: Number(row.qty) || 1,
+        price: Number(row.unit_price) || 0,
+      }));
+  }
+
   const amount = Number(invoice.amount) || 0;
   if (amount <= 0) return [];
 
@@ -124,32 +148,66 @@ function InvoiceBillingInfoPanel({
 
     setSaving(true);
     setError(null);
-    const supabase = createClient();
     const phone = form.phone.trim() || null;
     const email = form.email.trim() || null;
     const address = form.address.trim() || null;
     const dueDate = form.dueDate.trim() || null;
 
     if (invoice.customer_id) {
-      const { error: contactError } = await supabase
-        .from("contacts")
-        .update({ name, phone, email, address })
-        .eq("id", invoice.customer_id);
-      if (contactError) {
+      const contactRes = await fetch(`/api/contacts/${invoice.customer_id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name, phone, email, address }),
+      });
+      if (!contactRes.ok) {
+        const json = (await contactRes.json().catch(() => ({}))) as {
+          error?: string;
+        };
         setSaving(false);
-        setError(contactError.message);
+        setError(json.error || "Could not update contact.");
         return;
       }
     }
 
     if (!isSyntheticInvoiceId(invoice.id)) {
-      const { error: invoiceError } = await supabase
-        .from("invoices")
-        .update({ customer_name: name, due_date: dueDate })
-        .eq("id", invoice.id);
-      if (invoiceError) {
+      const invoiceRes = await fetch(`/api/invoices/${invoice.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ customer_name: name, due_date: dueDate }),
+      });
+      const invoiceJson = (await invoiceRes.json().catch(() => ({}))) as {
+        error?: string;
+        data?: InvoiceDetailRow;
+        syncError?: string | null;
+      };
+      if (!invoiceRes.ok) {
         setSaving(false);
-        setError(invoiceError.message);
+        setError(invoiceJson.error || "Could not update invoice.");
+        return;
+      }
+      if (invoiceJson.syncError) {
+        setError(`Saved locally. QuickBooks: ${invoiceJson.syncError}`);
+      }
+      if (invoiceJson.data) {
+        onUpdated({
+          ...invoice,
+          ...invoiceJson.data,
+          contacts: {
+            id: invoice.contacts?.id || invoice.customer_id || "local",
+            name,
+            phone,
+            email,
+            address,
+            fax: invoice.contacts?.fax ?? null,
+            birthday: invoice.contacts?.birthday ?? null,
+            contact_type:
+              invoice.contacts?.contact_type ?? ("Customers" as const),
+            created_at: invoice.contacts?.created_at ?? "",
+            updated_at: invoice.contacts?.updated_at ?? "",
+          },
+        });
+        setSaving(false);
+        setEditing(false);
         return;
       }
     }
@@ -394,8 +452,11 @@ function InvoiceItemsPanel({
   onDeleteItem,
   onChangeItem,
   onStopEditing,
+  onSaveItems,
+  savingItems,
   addingQuoteItems,
   canAddQuoteItems,
+  canPersist,
 }: {
   items: InvoiceLineItem[];
   editingId: string | null;
@@ -409,14 +470,27 @@ function InvoiceItemsPanel({
     value: string
   ) => void;
   onStopEditing: () => void;
+  onSaveItems: () => void;
+  savingItems: boolean;
   addingQuoteItems: boolean;
   canAddQuoteItems: boolean;
+  canPersist: boolean;
 }) {
   return (
     <div className="flex min-h-0 flex-1 flex-col rounded-lg border border-gray-200 bg-white p-5">
       <div className="mb-4 flex shrink-0 items-center justify-between gap-3">
         <h3 className="text-base font-semibold text-gray-900">Invoice Items</h3>
         <div className="flex shrink-0 items-center gap-2">
+          {canPersist && (
+            <button
+              type="button"
+              onClick={onSaveItems}
+              disabled={savingItems}
+              className="rounded-md border border-gray-900 bg-white px-3 py-1.5 text-sm font-medium text-gray-900 hover:bg-gray-50 disabled:opacity-50"
+            >
+              {savingItems ? "Saving…" : "Save Items"}
+            </button>
+          )}
           <button
             type="button"
             onClick={onAddQuoteItems}
@@ -571,9 +645,7 @@ const PAYMENT_METHODS = [
   "Other",
 ] as const;
 
-type PaymentRow = InvoicePayment & {
-  reference?: string | null;
-};
+type PaymentRow = InvoicePayment;
 
 function InvoicePreviewPanel({
   invoice,
@@ -697,7 +769,9 @@ function InvoicePaymentHistoryPanel({
       const supabase = createClient();
       const { data, error: loadError } = await supabase
         .from("invoice_payments")
-        .select("id, invoice_id, amount, paid_at, method")
+        .select(
+          "id, invoice_id, amount, paid_at, method, reference, qb_id, qb_sync_token, qb_sync_status, qb_last_synced_at, qb_sync_error"
+        )
         .eq("invoice_id", invoice.id)
         .order("paid_at", { ascending: false });
 
@@ -750,20 +824,6 @@ function InvoicePaymentHistoryPanel({
     setError(null);
   }
 
-  function applyBalanceDelta(delta: number): {
-    balance: number;
-    status: InvoiceDetailRow["status"];
-  } {
-    const balance = Math.max(0, Number(invoice.balance) + delta);
-    const status =
-      balance <= 0
-        ? ("paid" as const)
-        : invoice.status === "paid"
-          ? ("open" as const)
-          : invoice.status;
-    return { balance, status };
-  }
-
   async function handleSavePayment(e: FormEvent) {
     e.preventDefault();
     if (isSyntheticInvoiceId(invoice.id)) {
@@ -779,97 +839,82 @@ function InvoicePaymentHistoryPanel({
 
     setSaving(true);
     setError(null);
-    const supabase = createClient();
-    const paidAt = form.paidAt
-      ? new Date(`${form.paidAt}T12:00:00`).toISOString()
-      : new Date().toISOString();
+    const paidAt = form.paidAt || new Date().toISOString().slice(0, 10);
     const reference = form.reference.trim() || null;
 
     if (editingPayment) {
-      const amountDelta = Number(editingPayment.amount) - amount;
-      const { error: updatePaymentError } = await supabase
-        .from("invoice_payments")
-        .update({
-          amount,
-          paid_at: paidAt,
-          method: form.method,
-        })
-        .eq("id", editingPayment.id);
+      const res = await fetch(
+        `/api/invoices/${invoice.id}/payments/${editingPayment.id}`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            amount,
+            paid_at: paidAt,
+            method: form.method,
+            reference,
+          }),
+        }
+      );
+      const json = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        syncError?: string | null;
+        data?: PaymentRow;
+        invoice?: InvoiceDetailRow;
+      };
 
-      if (updatePaymentError) {
+      if (!res.ok || !json.data) {
         setSaving(false);
-        setError(updatePaymentError.message);
-        return;
-      }
-
-      const { balance, status } = applyBalanceDelta(amountDelta);
-      const { error: updateInvoiceError } = await supabase
-        .from("invoices")
-        .update({ balance, status })
-        .eq("id", invoice.id);
-
-      if (updateInvoiceError) {
-        setSaving(false);
-        setError(updateInvoiceError.message);
+        setError(json.error || "Could not update payment.");
         return;
       }
 
       setPayments((prev) =>
         prev.map((payment) =>
-          payment.id === editingPayment.id
-            ? {
-                ...payment,
-                amount,
-                paid_at: paidAt,
-                method: form.method,
-                reference,
-              }
-            : payment
+          payment.id === editingPayment.id ? json.data! : payment
         )
       );
-      onInvoiceUpdated({ ...invoice, balance, status });
+      if (json.invoice) {
+        onInvoiceUpdated({ ...invoice, ...json.invoice });
+      }
+      if (json.syncError) {
+        setError(`Saved locally. QuickBooks: ${json.syncError}`);
+      }
       setSaving(false);
       setEditingPayment(null);
       return;
     }
 
-    const { data, error: insertError } = await supabase
-      .from("invoice_payments")
-      .insert({
-        invoice_id: invoice.id,
+    const res = await fetch(`/api/invoices/${invoice.id}/payments`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
         amount,
         paid_at: paidAt,
         method: form.method,
-      })
-      .select("id, invoice_id, amount, paid_at, method")
-      .single();
-
-    if (insertError || !data) {
-      setSaving(false);
-      setError(insertError?.message || "Could not record payment.");
-      return;
-    }
-
-    const { balance, status } = applyBalanceDelta(-amount);
-    const { error: updateError } = await supabase
-      .from("invoices")
-      .update({ balance, status })
-      .eq("id", invoice.id);
-
-    if (updateError) {
-      setSaving(false);
-      setError(updateError.message);
-      return;
-    }
-
-    setPayments((prev) => [
-      {
-        ...(data as PaymentRow),
         reference,
-      },
-      ...prev,
-    ]);
-    onInvoiceUpdated({ ...invoice, balance, status });
+      }),
+    });
+    const json = (await res.json().catch(() => ({}))) as {
+      error?: string;
+      syncError?: string | null;
+      data?: PaymentRow;
+      invoice?: InvoiceDetailRow;
+    };
+
+    if (!res.ok || !json.data) {
+      setSaving(false);
+      setError(json.error || "Could not record payment.");
+      return;
+    }
+
+    setPayments((prev) => [json.data!, ...prev]);
+    if (json.invoice) {
+      onInvoiceUpdated({ ...invoice, ...json.invoice });
+    }
+    if (json.syncError) {
+      setError(`Saved locally. QuickBooks: ${json.syncError}`);
+    }
     setSaving(false);
     setRecording(false);
   }
@@ -878,30 +923,34 @@ function InvoicePaymentHistoryPanel({
     if (isSyntheticInvoiceId(invoice.id)) return;
 
     setError(null);
-    const supabase = createClient();
-    const { error: deleteError } = await supabase
-      .from("invoice_payments")
-      .delete()
-      .eq("id", payment.id);
+    const res = await fetch(
+      `/api/invoices/${invoice.id}/payments/${payment.id}`,
+      { method: "DELETE" }
+    );
+    const json = (await res.json().catch(() => ({}))) as {
+      error?: string;
+      syncError?: string | null;
+      ok?: boolean;
+      invoice?: InvoiceDetailRow;
+    };
 
-    if (deleteError) {
-      setError(deleteError.message);
+    if (!res.ok) {
+      setError(json.error || "Could not delete payment.");
       return;
     }
 
-    const { balance, status } = applyBalanceDelta(Number(payment.amount));
-    const { error: updateError } = await supabase
-      .from("invoices")
-      .update({ balance, status })
-      .eq("id", invoice.id);
-
-    if (updateError) {
-      setError(updateError.message);
+    if (json.ok === false) {
+      setError(
+        json.syncError ||
+          "QuickBooks payment could not be deleted. Retry from sync status."
+      );
       return;
     }
 
+    if (json.invoice) {
+      onInvoiceUpdated({ ...invoice, ...json.invoice });
+    }
     setPayments((prev) => prev.filter((row) => row.id !== payment.id));
-    onInvoiceUpdated({ ...invoice, balance, status });
   }
 
   return (
@@ -925,23 +974,25 @@ function InvoicePaymentHistoryPanel({
           <table className="w-full min-w-[32rem] text-sm">
             <thead className="sticky top-0 bg-gray-50">
               <tr className="border-b border-gray-200">
-                {["Date", "Method", "Reference", "Amount", ""].map((label) => (
-                  <th
-                    key={label || "actions"}
-                    className={`px-3 py-2.5 text-xs font-medium uppercase tracking-wide text-gray-500 ${
-                      label === "Amount" ? "text-right" : "text-left"
-                    }`}
-                  >
-                    {label}
-                  </th>
-                ))}
+                {["Date", "Method", "Reference", "Amount", "QB", ""].map(
+                  (label) => (
+                    <th
+                      key={label || "actions"}
+                      className={`px-3 py-2.5 text-xs font-medium uppercase tracking-wide text-gray-500 ${
+                        label === "Amount" ? "text-right" : "text-left"
+                      }`}
+                    >
+                      {label}
+                    </th>
+                  )
+                )}
               </tr>
             </thead>
             <tbody>
               {loading ? (
                 <tr>
                   <td
-                    colSpan={5}
+                    colSpan={6}
                     className="px-3 py-8 text-center text-sm text-gray-500"
                   >
                     Loading…
@@ -950,7 +1001,7 @@ function InvoicePaymentHistoryPanel({
               ) : payments.length === 0 ? (
                 <tr>
                   <td
-                    colSpan={5}
+                    colSpan={6}
                     className="px-3 py-8 text-center text-sm text-gray-500"
                   >
                     No payments recorded yet.
@@ -973,6 +1024,21 @@ function InvoicePaymentHistoryPanel({
                     </td>
                     <td className="px-3 py-3 text-right tabular-nums text-gray-900">
                       {formatCurrencyPrecise(Number(payment.amount))}
+                    </td>
+                    <td className="px-2 py-3">
+                      <QuickBooksSyncStatusPanel
+                        entity="payment"
+                        compact
+                        fields={payment}
+                        syncPath={`/api/invoices/${invoice.id}/payments/${payment.id}/sync`}
+                        onSynced={(next) =>
+                          setPayments((prev) =>
+                            prev.map((row) =>
+                              row.id === payment.id ? { ...row, ...next } : row
+                            )
+                          )
+                        }
+                      />
                     </td>
                     <td className="w-20 px-2 py-3">
                       <div className="flex items-center justify-end gap-1 opacity-0 transition-opacity group-hover:opacity-100">
@@ -1102,8 +1168,46 @@ export default function InvoiceDetailView({
   const [editingLineId, setEditingLineId] = useState<string | null>(null);
   const [addingQuoteItems, setAddingQuoteItems] = useState(false);
   const [quoteItemsError, setQuoteItemsError] = useState<string | null>(null);
+  const [savingItems, setSavingItems] = useState(false);
+  const [itemsSaveError, setItemsSaveError] = useState<string | null>(null);
   const meta = buildInvoiceDetail(invoice);
   const canAddQuoteItems = Boolean(invoice.job_id);
+  const canPersist = !isSyntheticInvoiceId(invoice.id);
+
+  useEffect(() => {
+    setInvoice(initialInvoice);
+  }, [initialInvoice]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadLineItems() {
+      if (isSyntheticInvoiceId(invoice.id)) return;
+      const supabase = createClient();
+      const { data } = await supabase
+        .from("invoice_line_items")
+        .select("id, description, qty, unit_price, sort_order")
+        .eq("invoice_id", invoice.id)
+        .order("sort_order", { ascending: true });
+
+      if (cancelled || !data) return;
+      if (data.length === 0) return;
+
+      setLineItems(
+        data.map((row) => ({
+          id: row.id as string,
+          description: (row.description as string) || "",
+          qty: Number(row.qty) || 1,
+          price: Number(row.unit_price) || 0,
+        }))
+      );
+    }
+
+    void loadLineItems();
+    return () => {
+      cancelled = true;
+    };
+  }, [invoice.id]);
 
   function handleAddLineItem() {
     const id = `line-${Date.now()}`;
@@ -1146,6 +1250,62 @@ export default function InvoiceDetailView({
         };
       })
     );
+  }
+
+  async function persistLineItems(items: InvoiceLineItem[]) {
+    if (!canPersist) {
+      setItemsSaveError("Save this invoice before editing line items.");
+      return false;
+    }
+
+    setSavingItems(true);
+    setItemsSaveError(null);
+
+    const res = await fetch(`/api/invoices/${invoice.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        line_items: items.map((item) => ({
+          description: item.description,
+          qty: item.qty,
+          unit_price: item.price,
+        })),
+      }),
+    });
+    const json = (await res.json().catch(() => ({}))) as {
+      error?: string;
+      syncError?: string | null;
+      data?: InvoiceDetailRow & {
+        invoice_line_items?: Array<{
+          id: string;
+          description: string;
+          qty: number;
+          unit_price: number;
+          sort_order?: number;
+        }>;
+      };
+    };
+
+    setSavingItems(false);
+
+    if (!res.ok || !json.data) {
+      setItemsSaveError(json.error || "Could not save line items.");
+      return false;
+    }
+
+    setInvoice((prev) => ({ ...prev, ...json.data! }));
+    if (json.data.invoice_line_items) {
+      setLineItems(getInvoiceLineItems(json.data as InvoiceDetailRow));
+    }
+    if (json.syncError) {
+      setItemsSaveError(`Saved locally. QuickBooks: ${json.syncError}`);
+    }
+    return true;
+  }
+
+  async function handleSaveLineItems() {
+    await persistLineItems(lineItems);
+    setEditingLineId(null);
   }
 
   async function handleAddQuoteItems() {
@@ -1210,11 +1370,13 @@ export default function InvoiceDetailView({
       return;
     }
 
-    setLineItems((prev) => [
-      ...prev.filter((item) => !isQuoteSourcedLineItem(item.id)),
+    const next = [
+      ...lineItems.filter((item) => !isQuoteSourcedLineItem(item.id)),
       ...quoteLines,
-    ]);
+    ];
+    setLineItems(next);
     setAddingQuoteItems(false);
+    await persistLineItems(next);
   }
 
   const fillHeight =
@@ -1362,8 +1524,18 @@ export default function InvoiceDetailView({
           </div>
 
           <div className="grid min-h-0 flex-1 grid-cols-1 gap-3 md:grid-cols-2">
-            <div className="flex min-h-0 min-w-0 flex-col">
+            <div className="flex min-h-0 min-w-0 flex-col gap-3 overflow-auto">
               <InvoiceSummaryPanel items={lineItems} invoice={invoice} />
+              {!isSyntheticInvoiceId(invoice.id) && (
+                <QuickBooksSyncStatusPanel
+                  entity="invoice"
+                  fields={invoice}
+                  syncPath={`/api/invoices/${invoice.id}/sync`}
+                  onSynced={(next) =>
+                    setInvoice((prev) => ({ ...prev, ...next }))
+                  }
+                />
+              )}
             </div>
             <div className="flex min-h-0 min-w-0 flex-col">
               <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border border-gray-200 bg-white p-4">
@@ -1390,11 +1562,16 @@ export default function InvoiceDetailView({
               onDeleteItem={handleDeleteLineItem}
               onChangeItem={handleChangeLineItem}
               onStopEditing={() => setEditingLineId(null)}
+              onSaveItems={() => void handleSaveLineItems()}
+              savingItems={savingItems}
               addingQuoteItems={addingQuoteItems}
               canAddQuoteItems={canAddQuoteItems}
+              canPersist={canPersist}
             />
-            {quoteItemsError && (
-              <p className="mt-2 shrink-0 text-sm text-red-600">{quoteItemsError}</p>
+            {(quoteItemsError || itemsSaveError) && (
+              <p className="mt-2 shrink-0 text-sm text-red-600">
+                {itemsSaveError || quoteItemsError}
+              </p>
             )}
           </div>
           <div className="flex min-h-0 min-w-0 flex-col gap-3 lg:flex-[3]">

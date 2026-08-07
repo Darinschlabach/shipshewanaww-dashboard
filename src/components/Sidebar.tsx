@@ -32,6 +32,8 @@ import {
 
   IconSettings,
 
+  IconPlugConnected,
+
   IconLogout,
 
   IconChevronDown,
@@ -139,6 +141,8 @@ const navSections: { label: string; items: NavItem[] }[] = [
         ],
 
       },
+
+      { type: "link", href: "/settings/integrations", label: "Integrations", icon: IconPlugConnected },
 
       { type: "link", href: "/admin", label: "Admin", icon: IconSettings },
 

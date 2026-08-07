@@ -16,6 +16,7 @@ import Button from "@/components/Button";
 import QuoteStatusBadge from "@/components/QuoteStatusBadge";
 import QuoteRoomsTab from "@/components/quotes/QuoteRoomsTab";
 import QuoteServicesTab from "@/components/quotes/QuoteServicesTab";
+import QuoteFilesTab from "@/components/quotes/QuoteFilesTab";
 import ConfirmModal from "@/components/ConfirmModal";
 import Modal from "@/components/Modal";
 import { createClient } from "@/lib/supabase/client";
@@ -23,6 +24,8 @@ import {
   buildQuoteDetail,
   formatQuoteDisplayNumber,
 } from "@/lib/quote-detail";
+import { listQuoteFiles } from "@/lib/quote-files";
+import { localListQuoteFiles } from "@/lib/quote-files-local";
 import { formatQuoteNumber } from "@/lib/quotes";
 import {
   buildQuoteRoomSummaries,
@@ -43,7 +46,7 @@ const TABS = [
   { id: "overview", label: "Overview" },
   { id: "rooms", label: "Rooms" },
   { id: "services", label: "Services" },
-  { id: "files", label: "Files", countKey: "fileCount" as const },
+  { id: "files", label: "Files" },
 ];
 
 interface QuoteDetailViewProps {
@@ -92,8 +95,30 @@ export default function QuoteDetailView({
     displayTotal + quoteSalesTax(displayTotal, includeTax);
   const [downloadingPdf, setDownloadingPdf] = useState(false);
   const [pdfError, setPdfError] = useState<string | null>(null);
+  const [fileCount, setFileCount] = useState(0);
 
   const isConverted = quote.status === "converted";
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadFileCount() {
+      const remote = await listQuoteFiles(quote.id);
+      const local = await localListQuoteFiles(quote.id);
+      if (cancelled) return;
+      if (!remote.error) {
+        const byId = new Set<string>();
+        for (const file of local) byId.add(file.id);
+        for (const file of remote.files) byId.add(file.id);
+        setFileCount(byId.size);
+      } else {
+        setFileCount(local.length);
+      }
+    }
+    void loadFileCount();
+    return () => {
+      cancelled = true;
+    };
+  }, [quote.id]);
 
   function resolvedLeadTimeWeeks(): number {
     const parsed = parseInt(leadTimeWeeks, 10);
@@ -169,7 +194,10 @@ export default function QuoteDetailView({
   }
 
   const fillHeightTab =
-    activeTab === "overview" || activeTab === "rooms" || activeTab === "services";
+    activeTab === "overview" ||
+    activeTab === "rooms" ||
+    activeTab === "services" ||
+    activeTab === "files";
 
   return (
     <div
@@ -256,12 +284,10 @@ export default function QuoteDetailView({
       <div className="mb-3 shrink-0 border-b border-gray-200">
         <div className="flex gap-1 overflow-x-auto">
           {TABS.map((tab) => {
-            const count =
-              "countKey" in tab && tab.countKey
-                ? meta[tab.countKey]
-                : null;
             const label =
-              count != null ? `${tab.label} (${count})` : tab.label;
+              tab.id === "files"
+                ? `${tab.label} (${fileCount})`
+                : tab.label;
             return (
               <button
                 key={tab.id}
@@ -501,9 +527,12 @@ export default function QuoteDetailView({
       )}
 
       {activeTab === "files" && (
-        <p className="rounded-lg border border-gray-200 bg-white p-8 text-center text-sm text-gray-500">
-          {meta.fileCount} files attached to this quote. File management coming soon.
-        </p>
+        <div className="min-h-0 flex-1 overflow-hidden">
+          <QuoteFilesTab
+            quoteId={quote.id}
+            onFileCountChange={setFileCount}
+          />
+        </div>
       )}
 
       {showRenameJob && (

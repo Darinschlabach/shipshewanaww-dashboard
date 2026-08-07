@@ -208,7 +208,10 @@ export default function JobsPage() {
     setDeleting(true);
     const supabase = createClient();
 
-    await supabase.from("invoices").delete().eq("job_id", deleteJob.id);
+    await fetch(
+      `/api/invoices?job_id=${encodeURIComponent(deleteJob.id)}`,
+      { method: "DELETE" }
+    );
 
     const { error } = await supabase
       .from("jobs")

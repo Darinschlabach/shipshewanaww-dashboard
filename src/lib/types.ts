@@ -87,6 +87,11 @@ export interface Contact {
   address: string | null;
   birthday: string | null;
   contact_type: ContactType;
+  qb_id?: string | null;
+  qb_sync_token?: string | null;
+  qb_sync_status?: string | null;
+  qb_last_synced_at?: string | null;
+  qb_sync_error?: string | null;
   created_at: string;
   updated_at: string;
 }

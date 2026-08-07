@@ -221,7 +221,6 @@ export default function InvoicesPage() {
     }
 
     setCreating(true);
-    const supabase = createClient();
 
     let jobId: string | null = null;
     let customerId: string | null = null;
@@ -253,9 +252,10 @@ export default function InvoicesPage() {
       customerName = contact.name;
     }
 
-    const { data: created, error } = await supabase
-      .from("invoices")
-      .insert({
+    const res = await fetch("/api/invoices", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
         invoice_number: nextInvoiceNumber(invoices),
         job_id: jobId,
         customer_id: customerId,
@@ -263,14 +263,16 @@ export default function InvoicesPage() {
         invoice_date: new Date().toISOString().slice(0, 10),
         due_date: dueDate,
         amount,
-        balance: amount,
         status: "open",
-      })
-      .select("id")
-      .single();
+      }),
+    });
+    const json = (await res.json().catch(() => ({}))) as {
+      error?: string;
+      data?: { id: string };
+    };
 
-    if (error || !created) {
-      setCreateError(error?.message || "Could not create invoice.");
+    if (!res.ok || !json.data) {
+      setCreateError(json.error || "Could not create invoice.");
       setCreating(false);
       return;
     }
@@ -278,34 +280,50 @@ export default function InvoicesPage() {
     setShowModal(false);
     setForm(emptyInvoiceForm);
     setCreating(false);
-    router.push(`/invoices/${created.id}`);
+    router.push(`/invoices/${json.data.id}`);
   }
 
   async function handleDeleteInvoice() {
     if (!deleteInvoice) return;
     setDeleting(true);
-    const supabase = createClient();
 
-    let error: { message: string } | null = null;
+    let ok = false;
+    let syncError: string | null = null;
 
     if (isSyntheticInvoiceId(deleteInvoice.id)) {
       if (deleteInvoice.job_id) {
-        const result = await supabase
-          .from("invoices")
-          .delete()
-          .eq("job_id", deleteInvoice.job_id);
-        error = result.error;
+        const res = await fetch(
+          `/api/invoices?job_id=${encodeURIComponent(deleteInvoice.job_id)}`,
+          { method: "DELETE" }
+        );
+        const json = (await res.json().catch(() => ({}))) as {
+          ok?: boolean;
+          syncError?: string | null;
+        };
+        ok = res.ok && json.ok !== false;
+        syncError = json.syncError ?? null;
+      } else {
+        ok = true;
       }
     } else {
-      const result = await supabase
-        .from("invoices")
-        .delete()
-        .eq("id", deleteInvoice.id);
-      error = result.error;
+      const res = await fetch(`/api/invoices/${deleteInvoice.id}`, {
+        method: "DELETE",
+      });
+      const json = (await res.json().catch(() => ({}))) as {
+        ok?: boolean;
+        syncError?: string | null;
+      };
+      ok = res.ok && json.ok !== false;
+      syncError = json.syncError ?? null;
     }
 
-    if (error) {
+    if (!ok) {
       setDeleting(false);
+      if (syncError) {
+        window.alert(
+          `Invoice was kept locally because QuickBooks void failed:\n${syncError}`
+        );
+      }
       return;
     }
 

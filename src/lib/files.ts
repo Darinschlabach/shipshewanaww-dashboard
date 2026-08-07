@@ -27,9 +27,10 @@ export interface CompanyFile {
   starred: boolean;
   isFolder: boolean;
   jobId?: string | null;
+  quoteId?: string | null;
   shared?: boolean;
   trashed?: boolean;
-  /** Job Files tab grouping */
+  /** Job / quote Files tab grouping */
   drawingCategory?: JobFilesTab;
   /** Local blob URL or remote URL for opening the file */
   url?: string | null;
@@ -325,12 +326,17 @@ export function filterCompanyFiles(
     search: string;
     category?: CompanyFileCategory | null;
     jobId?: string;
+    quoteId?: string;
   }
 ): CompanyFile[] {
   let list = files.filter((f) => !f.trashed);
 
   if (opts.jobId) {
     list = list.filter((f) => f.jobId === opts.jobId);
+  }
+
+  if (opts.quoteId) {
+    list = list.filter((f) => f.quoteId === opts.quoteId);
   }
 
   switch (opts.tab) {

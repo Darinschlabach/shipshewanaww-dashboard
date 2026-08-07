@@ -16,6 +16,11 @@ export interface Invoice {
   amount: number;
   balance: number;
   status: InvoiceStatus;
+  qb_id?: string | null;
+  qb_sync_token?: string | null;
+  qb_sync_status?: string | null;
+  qb_last_synced_at?: string | null;
+  qb_sync_error?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -30,6 +35,12 @@ export interface InvoicePayment {
   amount: number;
   paid_at: string;
   method: string | null;
+  reference?: string | null;
+  qb_id?: string | null;
+  qb_sync_token?: string | null;
+  qb_sync_status?: string | null;
+  qb_last_synced_at?: string | null;
+  qb_sync_error?: string | null;
   invoices?: Pick<Invoice, "invoice_number" | "customer_name"> | null;
 }
 

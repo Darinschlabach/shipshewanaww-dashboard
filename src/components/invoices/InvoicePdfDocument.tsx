@@ -1,11 +1,7 @@
 import { COMPANY, quoteSalesTax } from "@/lib/company";
+import type { InvoiceDocumentPayment } from "@/lib/invoice-document";
 import type { QuoteDocumentData } from "@/lib/quote-document";
 import { formatCurrencyPrecise, formatDateLong } from "@/lib/utils";
-import {
-  RoomNumberBadge,
-  QuotePdfThankYouImage,
-  pdfTableCellStyle as projectSummaryCellStyle,
-} from "@/components/quotes/quote-pdf-components";
 import {
   PDF_BAR_COLOR,
   PDF_PAGE_HEIGHT_PX,
@@ -15,56 +11,87 @@ import {
 interface InvoicePdfDocumentProps {
   data: QuoteDocumentData;
   includeTax?: boolean;
+  paymentsCredits?: number;
+  paymentHistory?: InvoiceDocumentPayment[];
 }
 
 const PROJECT_SUMMARY_ROW_COUNT = 10;
+const SUMMARY_COL_WIDTHS = ["12%", "68%", "20%"] as const;
+
+const itemCellStyle = {
+  borderLeft: "1px solid #d4d4d4",
+  borderRight: "1px solid #d4d4d4",
+  borderTop: "none",
+  borderBottom: "none",
+  padding: "6px 10px",
+} as const;
+
+const totalsLabelCellStyle = {
+  border: "1px solid #d4d4d4",
+  padding: "8px 10px",
+  fontWeight: 700,
+  whiteSpace: "nowrap" as const,
+  verticalAlign: "middle" as const,
+  textAlign: "left" as const,
+  fontSize: 13,
+  boxSizing: "border-box" as const,
+};
+
+const totalsValueCellStyle = {
+  border: "1px solid #d4d4d4",
+  padding: "8px 10px",
+  textAlign: "right" as const,
+  fontVariantNumeric: "tabular-nums" as const,
+  verticalAlign: "middle" as const,
+  whiteSpace: "nowrap" as const,
+  fontSize: 13,
+  boxSizing: "border-box" as const,
+};
 
 /** Invoice PDF — same layout as the quote first page; invoice-only labels. */
 export default function InvoicePdfDocument({
   data,
   includeTax = false,
+  paymentsCredits = 0,
+  paymentHistory = [],
 }: InvoicePdfDocumentProps) {
   return (
     <InvoicePdfSummaryPage
       data={data}
-      pageNumber={1}
-      totalPages={1}
-      showThankYou={data.rooms.length === 0}
       includeTax={includeTax}
+      paymentsCredits={paymentsCredits}
+      paymentHistory={paymentHistory}
     />
   );
 }
 
 function InvoicePdfSummaryPage({
   data,
-  pageNumber,
-  totalPages,
-  showThankYou = false,
   includeTax = false,
+  paymentsCredits = 0,
+  paymentHistory = [],
 }: {
   data: QuoteDocumentData;
-  pageNumber: number;
-  totalPages: number;
-  showThankYou?: boolean;
   includeTax?: boolean;
+  paymentsCredits?: number;
+  paymentHistory?: InvoiceDocumentPayment[];
 }) {
-  const delivery = data.deliveryTotal;
   const fullAmount = data.roomsTotal + data.servicesTotal;
-  const subtotal = fullAmount - delivery;
+  const subtotal = fullAmount;
   const tax = quoteSalesTax(fullAmount, includeTax);
   const total = fullAmount + tax;
+  const payments = Math.max(0, paymentsCredits);
+  const balanceDue = Math.max(0, total - payments);
   const projectRows = data.rooms;
   const summaryRows = [
-    ...projectRows.map((room, index) => ({
+    ...projectRows.map((room) => ({
       key: room.id,
-      number: index + 1,
       room,
     })),
     ...Array.from(
       { length: Math.max(0, PROJECT_SUMMARY_ROW_COUNT - projectRows.length) },
       (_, index) => ({
         key: `blank-${projectRows.length + index + 1}`,
-        number: projectRows.length + index + 1,
         room: null as (typeof projectRows)[number] | null,
       })
     ),
@@ -76,13 +103,17 @@ function InvoicePdfSummaryPage({
       className="invoice-page"
       style={{
         ...pdfPage,
+        height: PDF_PAGE_HEIGHT_PX,
         minHeight: PDF_PAGE_HEIGHT_PX,
-        padding: "26px 34px 24px",
+        maxHeight: PDF_PAGE_HEIGHT_PX,
+        padding: "26px 34px 16px",
+        boxSizing: "border-box",
         fontFamily: "Arial, Helvetica, sans-serif",
         color: PDF_BAR_COLOR,
         display: "flex",
         flexDirection: "column",
         position: "relative",
+        overflow: "hidden",
       }}
     >
       <header
@@ -219,7 +250,7 @@ function InvoicePdfSummaryPage({
               fontSize: 13,
             }}
           >
-            PREPARED FOR
+            BILL TO
           </p>
           <p style={{ margin: 0, fontSize: 13, lineHeight: 1.5 }}>
             {safeValue(data.customerName)}
@@ -266,28 +297,62 @@ function InvoicePdfSummaryPage({
         </div>
       </section>
 
-      <section style={{ marginTop: 14 }}>
+      <section
+        style={{
+          flex: 1,
+          display: "flex",
+          flexDirection: "column",
+          marginTop: 14,
+          marginBottom: 0,
+          minHeight: 0,
+        }}
+      >
         <p
           style={{
             margin: "0 0 8px",
             color: "#8e7641",
             fontWeight: 700,
             fontSize: 13,
+            flexShrink: 0,
           }}
         >
           PROJECT SUMMARY
         </p>
-        <table
-          style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}
+        <div
+          style={{
+            flex: 1,
+            display: "flex",
+            flexDirection: "column",
+            minHeight: 0,
+          }}
         >
-          <thead>
-            <tr style={{ background: PDF_BAR_COLOR, color: "#fff" }}>
-              {["ROOM", "DESCRIPTION", "FINISH / STYLE", "AMOUNT"].map(
-                (title) => (
+          <table
+            style={{
+              width: "100%",
+              borderCollapse: "collapse",
+              fontSize: 13,
+              tableLayout: "fixed",
+              flexShrink: 0,
+            }}
+          >
+            <colgroup>
+              {SUMMARY_COL_WIDTHS.map((width) => (
+                <col key={width} style={{ width }} />
+              ))}
+            </colgroup>
+            <thead>
+              <tr style={{ background: PDF_BAR_COLOR, color: "#fff" }}>
+                {(
+                  [
+                    { title: "QTY", align: "left" as const },
+                    { title: "DESCRIPTION", align: "left" as const },
+                    { title: "TOTAL", align: "right" as const },
+                  ] as const
+                ).map(({ title, align }) => (
                   <th
                     key={title}
                     style={{
-                      textAlign: title === "AMOUNT" ? "right" : "left",
+                      textAlign: align,
                       padding: "8px 10px",
                       border: "1px solid #6a7178",
                       fontSize: 12,
@@ -295,274 +360,243 @@ function InvoicePdfSummaryPage({
                   >
                     {title}
                   </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {summaryRows.map(({ key, room }) =>
+                room ? (
+                  <tr key={key}>
+                    <td
+                      style={{
+                        ...itemCellStyle,
+                        fontVariantNumeric: "tabular-nums",
+                      }}
+                    >
+                      {room.itemCount}
+                    </td>
+                    <td style={itemCellStyle}>{safeValue(room.name)}</td>
+                    <td
+                      style={{
+                        ...itemCellStyle,
+                        textAlign: "right",
+                        whiteSpace: "nowrap",
+                        fontVariantNumeric: "tabular-nums",
+                      }}
+                    >
+                      {formatCurrencyPrecise(room.roomTotal)}
+                    </td>
+                  </tr>
+                ) : (
+                  <tr key={key}>
+                    <td style={itemCellStyle} />
+                    <td style={itemCellStyle} />
+                    <td style={itemCellStyle} />
+                  </tr>
                 )
               )}
-            </tr>
-          </thead>
-          <tbody>
-            {summaryRows.map(({ key, number, room }) =>
-              room ? (
-                <tr key={key}>
-                  <td style={projectSummaryCellStyle}>
-                    <span
-                      style={{
-                        display: "inline-flex",
-                        alignItems: "center",
-                        gap: 8,
-                      }}
-                    >
-                      <RoomNumberBadge number={number} />
-                      <span>{room.name}</span>
-                    </span>
-                  </td>
-                  <td style={projectSummaryCellStyle}>Custom Cabinetry</td>
-                  <td style={projectSummaryCellStyle}>
-                    {safeValue(`${room.woodSpecies} / ${room.doorStyle}`)}
-                  </td>
-                  <td
-                    style={{
-                      ...projectSummaryCellStyle,
-                      textAlign: "right",
-                      whiteSpace: "nowrap",
-                      fontVariantNumeric: "tabular-nums",
-                    }}
-                  >
-                    {formatCurrencyPrecise(room.roomTotal)}
-                  </td>
-                </tr>
-              ) : (
-                <tr key={key}>
-                  <td style={projectSummaryCellStyle}>
-                    <RoomNumberBadge number={number} />
-                  </td>
-                  <td style={projectSummaryCellStyle} />
-                  <td style={projectSummaryCellStyle} />
-                  <td style={projectSummaryCellStyle} />
-                </tr>
-              )
-            )}
-          </tbody>
-        </table>
-      </section>
-
-      <section
-        style={{
-          flex: 1,
-          display: "grid",
-          gridTemplateColumns: "1fr 250px",
-          columnGap: 12,
-          marginBottom: 24,
-          minHeight: 0,
-          alignItems: "stretch",
-        }}
-      >
-        <div
-          style={{
-            gridColumn: 1,
-            border: "1px solid #d4d4d4",
-            alignSelf: "stretch",
-            marginTop: 6,
-            padding: "8px 10px",
-            display: "flex",
-            flexDirection: "column",
-            height: "100%",
-          }}
-        >
-          <div>
-            <p
-              style={{
-                margin: 0,
-                fontSize: 11,
-                lineHeight: 1.35,
-                color: "#1f2933",
-                transform: "translateY(-12px)",
-              }}
-            >
-              We propose to furnish material and labor - complete in accordance
-              with above specifications.
-            </p>
-            <div
-              style={{
-                borderTop: "1px solid #d4d4d4",
-                marginTop: "-3px",
-                marginLeft: "-10px",
-                marginRight: "-10px",
-              }}
-            />
-            <p
-              style={{
-                margin: 0,
-                fontSize: 11,
-                lineHeight: 1.35,
-                color: "#1f2933",
-              }}
-            >
-              All material guaranteed to be specified. All work to be completed
-              in a workmanlike manner according to standard practices. Any
-              altercation or deviation from above specifications involving extra
-              cost will be executed only upon written orders and will become an
-              extra charge over and above the estimate.
-            </p>
-            <div
-              style={{
-                borderTop: "1px solid #d4d4d4",
-                marginTop: 12,
-                marginLeft: "-10px",
-                marginRight: "-10px",
-              }}
-            />
-            <p
-              style={{
-                margin: "6px 0 0",
-                fontSize: 11,
-                lineHeight: 1.35,
-                color: "#1f2933",
-                transform: "translateY(-6px)",
-              }}
-            >
-              Acceptance of Proposal — The above prices, specifications and
-              conditions are satisfactory and are hereby accepted. You are
-              authorized to the work as specified.
-            </p>
-          </div>
-          <p
-            style={{
-              marginTop: "auto",
-              marginBottom: 0,
-              fontSize: 11,
-              lineHeight: 1.35,
-              color: "#1f2933",
-              transform: "translateY(-3px)",
-              display: "flex",
-              alignItems: "flex-end",
-              gap: 6,
-            }}
-          >
-            <span style={{ whiteSpace: "nowrap" }}>Signature:</span>
-            <span
-              style={{
-                display: "inline-block",
-                flex: 1,
-                minWidth: 220,
-                borderBottom: "1px solid #1f2933",
-                marginBottom: 2,
-                transform: "translateY(6px)",
-              }}
-            />
-          </p>
-        </div>
-
-        <div
-          style={{
-            gridColumn: 2,
-            alignSelf: "end",
-            marginTop: 6,
-            transform: "translateY(6px)",
-          }}
-        >
-          <table
-            style={{
-              width: 250,
-              borderCollapse: "collapse",
-              fontSize: 13,
-              tableLayout: "fixed",
-            }}
-          >
-            <colgroup>
-              <col style={{ width: "38%" }} />
-              <col style={{ width: "62%" }} />
-            </colgroup>
-            <tbody>
-              {[
-                ["DELIVERY", formatCurrencyPrecise(delivery)],
-                ["SUBTOTAL", formatCurrencyPrecise(subtotal)],
-                ["SALES TAX", formatCurrencyPrecise(tax)],
-              ].map(([label, value]) => (
-                <tr key={label}>
-                  <td
-                    style={{
-                      border: "1px solid #d4d4d4",
-                      padding: "8px 10px",
-                      fontWeight: 700,
-                      whiteSpace: "nowrap",
-                      verticalAlign: "middle",
-                    }}
-                  >
-                    {label}
-                  </td>
-                  <td
-                    style={{
-                      border: "1px solid #d4d4d4",
-                      padding: "8px 10px",
-                      textAlign: "right",
-                      fontVariantNumeric: "tabular-nums",
-                      verticalAlign: "middle",
-                      whiteSpace: "nowrap",
-                    }}
-                  >
-                    {value}
-                  </td>
-                </tr>
-              ))}
-              <tr style={{ background: "#8e7641", color: "#fff" }}>
-                <td
-                  colSpan={2}
-                  style={{
-                    border: "1px solid #8e7641",
-                    padding: 0,
-                    height: 44,
-                  }}
-                >
-                  <div
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "space-between",
-                      height: "100%",
-                      padding: "0 10px",
-                      fontWeight: 700,
-                      fontSize: 20,
-                      lineHeight: 1,
-                    }}
-                  >
-                    <span>TOTAL</span>
-                    <span
-                      style={{
-                        fontVariantNumeric: "tabular-nums",
-                        whiteSpace: "nowrap",
-                      }}
-                    >
-                      {formatCurrencyPrecise(total)}
-                    </span>
-                  </div>
-                </td>
-              </tr>
             </tbody>
           </table>
+          <div
+            style={{
+              flex: 1,
+              display: "grid",
+              gridTemplateColumns: SUMMARY_COL_WIDTHS.join(" "),
+              minHeight: 24,
+              borderLeft: "1px solid #d4d4d4",
+              borderRight: "1px solid #d4d4d4",
+              borderBottom: "1px solid #d4d4d4",
+            }}
+          >
+            <div style={{ borderRight: "1px solid #d4d4d4" }} />
+            <div style={{ borderRight: "1px solid #d4d4d4" }} />
+            <div />
+          </div>
+        </div>
+
+        <div
+          style={{
+            marginTop: 6,
+            flexShrink: 0,
+            width: "100%",
+            display: "grid",
+            gridTemplateColumns: "1fr max-content 20%",
+            alignItems: "stretch",
+          }}
+        >
+          <div
+            style={{
+              gridColumn: 1,
+              gridRow: "1 / 6",
+              marginRight: 12,
+              border: "1px solid #d4d4d4",
+              padding: "8px 10px",
+              boxSizing: "border-box",
+              minWidth: 0,
+              display: "flex",
+              flexDirection: "column",
+            }}
+          >
+            <p
+              style={{
+                margin: "0 0 8px",
+                color: "#8e7641",
+                fontWeight: 700,
+                fontSize: 13,
+              }}
+            >
+              PAYMENTS MADE
+            </p>
+            {paymentHistory.length === 0 ? (
+              <p
+                style={{
+                  margin: 0,
+                  fontSize: 12,
+                  lineHeight: 1.4,
+                  color: "#6b7280",
+                }}
+              >
+                No payments recorded.
+              </p>
+            ) : (
+              <table
+                style={{
+                  width: "100%",
+                  borderCollapse: "collapse",
+                  fontSize: 12,
+                }}
+              >
+                <thead>
+                  <tr>
+                    {["DATE", "METHOD", "AMOUNT"].map((title) => (
+                      <th
+                        key={title}
+                        style={{
+                          textAlign: title === "AMOUNT" ? "right" : "left",
+                          padding: "4px 6px",
+                          borderBottom: "1px solid #d4d4d4",
+                          fontSize: 11,
+                          fontWeight: 700,
+                          color: PDF_BAR_COLOR,
+                        }}
+                      >
+                        {title}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {paymentHistory.map((payment) => (
+                    <tr key={payment.id}>
+                      <td
+                        style={{
+                          padding: "4px 6px",
+                          verticalAlign: "top",
+                          whiteSpace: "nowrap",
+                        }}
+                      >
+                        {formatDateLong(payment.paidAt)}
+                      </td>
+                      <td
+                        style={{
+                          padding: "4px 6px",
+                          verticalAlign: "top",
+                        }}
+                      >
+                        {payment.method}
+                      </td>
+                      <td
+                        style={{
+                          padding: "4px 6px",
+                          verticalAlign: "top",
+                          textAlign: "right",
+                          whiteSpace: "nowrap",
+                          fontVariantNumeric: "tabular-nums",
+                        }}
+                      >
+                        {formatCurrencyPrecise(payment.amount)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+
+          {[
+            ["SUBTOTAL", formatCurrencyPrecise(subtotal)],
+            ["SALES TAX", formatCurrencyPrecise(tax)],
+            ["TOTAL", formatCurrencyPrecise(total)],
+            ["PAYMENTS/CREDITS", formatCurrencyPrecise(payments)],
+          ].map(([label, value], index) => (
+            <div key={label} style={{ display: "contents" }}>
+              <div
+                style={{
+                  ...totalsLabelCellStyle,
+                  gridColumn: 2,
+                  gridRow: index + 1,
+                }}
+              >
+                {label}
+              </div>
+              <div
+                style={{
+                  ...totalsValueCellStyle,
+                  gridColumn: 3,
+                  gridRow: index + 1,
+                }}
+              >
+                {value}
+              </div>
+            </div>
+          ))}
+          <div
+            style={{
+              gridColumn: 2,
+              gridRow: 5,
+              background: "#8e7641",
+              color: "#fff",
+              border: "1px solid #8e7641",
+              padding: "8px 10px",
+              fontWeight: 700,
+              fontSize: 20,
+              lineHeight: 1,
+              textAlign: "left",
+              whiteSpace: "nowrap",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "flex-start",
+              minHeight: 44,
+              boxSizing: "border-box",
+            }}
+          >
+            BALANCE DUE
+          </div>
+          <div
+            style={{
+              gridColumn: 3,
+              gridRow: 5,
+              background: "#8e7641",
+              color: "#fff",
+              border: "1px solid #8e7641",
+              padding: "8px 10px",
+              fontWeight: 700,
+              fontSize: 20,
+              lineHeight: 1,
+              textAlign: "right",
+              fontVariantNumeric: "tabular-nums",
+              whiteSpace: "nowrap",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "flex-end",
+              minHeight: 44,
+              boxSizing: "border-box",
+            }}
+          >
+            {formatCurrencyPrecise(balanceDue)}
+          </div>
         </div>
       </section>
-
-      {showThankYou && (
-        <div style={{ marginTop: "auto", marginBottom: 36, textAlign: "center" }}>
-          <QuotePdfThankYouImage />
-        </div>
-      )}
-
-      <p
-        className="invoice-page-number"
-        style={{
-          position: "absolute",
-          bottom: 32,
-          left: 0,
-          right: 0,
-          margin: 0,
-          textAlign: "center",
-          fontSize: 10,
-          lineHeight: 1,
-        }}
-      >
-        Page {pageNumber} of {totalPages}
-      </p>
     </section>
   );
 }

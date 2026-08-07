@@ -38,6 +38,13 @@ import {
   localListJobFiles,
   localUploadJobFiles,
 } from "@/lib/job-files-local";
+import { deleteQuoteFile, listQuoteFiles, uploadQuoteFiles } from "@/lib/quote-files";
+import {
+  isMissingQuoteFilesTableError,
+  localDeleteQuoteFile,
+  localListQuoteFiles,
+  localUploadQuoteFiles,
+} from "@/lib/quote-files-local";
 import ConfirmModal from "@/components/ConfirmModal";
 import FilesSidebar from "@/components/files/FilesSidebar";
 import { createClient } from "@/lib/supabase/client";
@@ -50,7 +57,7 @@ const COMPANY_FILE_TABS: { value: FilesTab; label: string }[] = [
   { value: "trash", label: "Trash" },
 ];
 
-const JOB_FILE_TABS: { value: FilesTab; label: string }[] = [
+const ENTITY_FILE_TABS: { value: FilesTab; label: string }[] = [
   { value: "provided_drawings", label: "Provided Drawings" },
   { value: "production_drawings", label: "Production Drawings" },
   { value: "misc", label: "Misc." },
@@ -65,7 +72,7 @@ const CARD_ICONS: Record<string, typeof IconFolder> = {
   shield: IconShield,
 };
 
-function isJobFilesTab(tab: FilesTab): tab is JobFilesTab {
+function isEntityFilesTab(tab: FilesTab): tab is JobFilesTab {
   return (
     tab === "provided_drawings" ||
     tab === "production_drawings" ||
@@ -91,34 +98,49 @@ function FileIcon({ type }: { type: FileType }) {
   }
 }
 
-function fileCategoryLabel(file: CompanyFile, isJob: boolean): string {
-  if (isJob && file.drawingCategory) {
+function fileCategoryLabel(file: CompanyFile, isEntity: boolean): string {
+  if (isEntity && file.drawingCategory) {
     return JOB_DRAWING_LABELS[file.drawingCategory];
   }
   return file.category;
 }
 
+function isMissingEntityFilesTableError(
+  kind: "job" | "quote",
+  message: string | null | undefined
+): boolean {
+  return kind === "job"
+    ? isMissingJobFilesTableError(message)
+    : isMissingQuoteFilesTableError(message);
+}
+
 interface FilesViewProps {
   jobId?: string;
+  quoteId?: string;
   showSidebar?: boolean;
   showCategoryCards?: boolean;
+  onFileCountChange?: (count: number) => void;
 }
 
 export default function FilesView({
   jobId,
+  quoteId,
   showSidebar = true,
   showCategoryCards = true,
+  onFileCountChange,
 }: FilesViewProps) {
-  const isJobFiles = Boolean(jobId);
-  const fileTabs = isJobFiles ? JOB_FILE_TABS : COMPANY_FILE_TABS;
+  const ownerKind = jobId ? "job" : quoteId ? "quote" : null;
+  const ownerId = jobId ?? quoteId ?? null;
+  const isEntityFiles = Boolean(ownerKind && ownerId);
+  const fileTabs = isEntityFiles ? ENTITY_FILE_TABS : COMPANY_FILE_TABS;
   const [tab, setTab] = useState<FilesTab>(
-    isJobFiles ? "provided_drawings" : "all"
+    isEntityFiles ? "provided_drawings" : "all"
   );
   const [search, setSearch] = useState("");
   const [categoryFilter, setCategoryFilter] = useState<CompanyFileCategory | null>(
     null
   );
-  const [jobFiles, setJobFiles] = useState<CompanyFile[]>([]);
+  const [entityFiles, setEntityFiles] = useState<CompanyFile[]>([]);
   const [uploaderName, setUploaderName] = useState("User");
   const [uploaderId, setUploaderId] = useState<string | null>(null);
   const [dragging, setDragging] = useState(false);
@@ -134,7 +156,7 @@ export default function FilesView({
   const dragDepth = useRef(0);
 
   useEffect(() => {
-    if (!isJobFiles) return;
+    if (!isEntityFiles) return;
     let cancelled = false;
     async function loadUploader() {
       const supabase = createClient();
@@ -161,11 +183,15 @@ export default function FilesView({
     return () => {
       cancelled = true;
     };
-  }, [isJobFiles]);
+  }, [isEntityFiles]);
 
   useEffect(() => {
-    if (!jobId) {
-      setJobFiles([]);
+    onFileCountChange?.(entityFiles.length);
+  }, [entityFiles.length, onFileCountChange]);
+
+  useEffect(() => {
+    if (!ownerId || !ownerKind) {
+      setEntityFiles([]);
       return;
     }
     let cancelled = false;
@@ -173,12 +199,18 @@ export default function FilesView({
       setLoadingFiles(true);
       setUploadError(null);
       try {
-        const remote = await listJobFiles(jobId!);
+        const remote =
+          ownerKind === "job"
+            ? await listJobFiles(ownerId!)
+            : await listQuoteFiles(ownerId!);
         let local: CompanyFile[] = [];
         try {
-          local = await localListJobFiles(jobId!);
+          local =
+            ownerKind === "job"
+              ? await localListJobFiles(ownerId!)
+              : await localListQuoteFiles(ownerId!);
         } catch (err) {
-          console.error("Local job files load failed:", err);
+          console.error("Local entity files load failed:", err);
         }
         if (cancelled) return;
 
@@ -186,20 +218,20 @@ export default function FilesView({
           const byId = new Map<string, CompanyFile>();
           for (const file of local) byId.set(file.id, file);
           for (const file of remote.files) byId.set(file.id, file);
-          setJobFiles(
+          setEntityFiles(
             [...byId.values()].sort((a, b) =>
               b.modifiedAt.localeCompare(a.modifiedAt)
             )
           );
-        } else if (isMissingJobFilesTableError(remote.error)) {
-          setJobFiles(local);
+        } else if (isMissingEntityFilesTableError(ownerKind!, remote.error)) {
+          setEntityFiles(local);
         } else {
           setUploadError(remote.error);
-          setJobFiles(local);
+          setEntityFiles(local);
         }
       } catch (err) {
         if (!cancelled) {
-          console.error("Job files load failed:", err);
+          console.error("Entity files load failed:", err);
           setUploadError(
             err instanceof Error ? err.message : "Could not load files."
           );
@@ -212,7 +244,7 @@ export default function FilesView({
     return () => {
       cancelled = true;
     };
-  }, [jobId]);
+  }, [ownerId, ownerKind]);
 
   function openFile(file: CompanyFile) {
     if (file.isFolder || !file.url) return;
@@ -220,9 +252,9 @@ export default function FilesView({
   }
 
   const scopeFiles = useMemo(() => {
-    if (!jobId) return MOCK_FILES;
-    return jobFiles;
-  }, [jobId, jobFiles]);
+    if (!isEntityFiles) return MOCK_FILES;
+    return entityFiles;
+  }, [isEntityFiles, entityFiles]);
 
   const pageFiles = useMemo(
     () =>
@@ -231,13 +263,14 @@ export default function FilesView({
         search,
         category: categoryFilter,
         jobId,
+        quoteId,
       }),
-    [scopeFiles, tab, search, categoryFilter, jobId]
+    [scopeFiles, tab, search, categoryFilter, jobId, quoteId]
   );
 
   const addFiles = useCallback(
     (fileList: FileList | File[]) => {
-      if (!jobId || !isJobFilesTab(tab) || uploading) return;
+      if (!ownerId || !ownerKind || !isEntityFilesTab(tab) || uploading) return;
       const files = Array.from(fileList);
       if (files.length === 0) return;
 
@@ -245,33 +278,54 @@ export default function FilesView({
         setUploading(true);
         setUploadError(null);
 
-        const remote = await uploadJobFiles({
-          jobId,
-          drawingCategory: tab,
-          files,
-          uploadedByName: uploaderName,
-          uploadedById: uploaderId,
-        });
+        const remote =
+          ownerKind === "job"
+            ? await uploadJobFiles({
+                jobId: ownerId,
+                drawingCategory: tab,
+                files,
+                uploadedByName: uploaderName,
+                uploadedById: uploaderId,
+              })
+            : await uploadQuoteFiles({
+                quoteId: ownerId,
+                drawingCategory: tab,
+                files,
+                uploadedByName: uploaderName,
+                uploadedById: uploaderId,
+              });
 
         if (!remote.error && remote.files.length > 0) {
-          setJobFiles((prev) => [...remote.files, ...prev]);
+          setEntityFiles((prev) => [...remote.files, ...prev]);
           setUploading(false);
           return;
         }
 
-        if (remote.error && !isMissingJobFilesTableError(remote.error)) {
+        if (
+          remote.error &&
+          !isMissingEntityFilesTableError(ownerKind, remote.error)
+        ) {
           setUploadError(remote.error);
         }
 
         try {
-          const localCreated = await localUploadJobFiles({
-            jobId,
-            drawingCategory: tab,
-            files,
-            uploadedByName: uploaderName,
-            uploadedById: uploaderId,
-          });
-          setJobFiles((prev) => [...localCreated, ...prev]);
+          const localCreated =
+            ownerKind === "job"
+              ? await localUploadJobFiles({
+                  jobId: ownerId,
+                  drawingCategory: tab,
+                  files,
+                  uploadedByName: uploaderName,
+                  uploadedById: uploaderId,
+                })
+              : await localUploadQuoteFiles({
+                  quoteId: ownerId,
+                  drawingCategory: tab,
+                  files,
+                  uploadedByName: uploaderName,
+                  uploadedById: uploaderId,
+                });
+          setEntityFiles((prev) => [...localCreated, ...prev]);
         } catch (err) {
           setUploadError(
             err instanceof Error ? err.message : "Could not save file locally."
@@ -280,31 +334,41 @@ export default function FilesView({
         setUploading(false);
       })();
     },
-    [jobId, tab, uploaderName, uploaderId, uploading]
+    [ownerId, ownerKind, tab, uploaderName, uploaderId, uploading]
   );
 
   function openFilePicker() {
-    if (!isJobFiles) return;
+    if (!isEntityFiles) return;
     fileInputRef.current?.click();
   }
 
   async function confirmDeleteFile() {
-    if (!filePendingDelete || !isJobFiles) return;
+    if (!filePendingDelete || !isEntityFiles || !ownerKind) return;
     const fileId = filePendingDelete.id;
     const fileUrl = filePendingDelete.url;
 
     setDeleting(true);
     setUploadError(null);
 
-    const remote = await deleteJobFile(fileId);
-    if (remote.error && !isMissingJobFilesTableError(remote.error)) {
+    const remote =
+      ownerKind === "job"
+        ? await deleteJobFile(fileId)
+        : await deleteQuoteFile(fileId);
+    if (
+      remote.error &&
+      !isMissingEntityFilesTableError(ownerKind, remote.error)
+    ) {
       setUploadError(remote.error);
       setDeleting(false);
       return;
     }
 
     try {
-      await localDeleteJobFile(fileId);
+      if (ownerKind === "job") {
+        await localDeleteJobFile(fileId);
+      } else {
+        await localDeleteQuoteFile(fileId);
+      }
     } catch (err) {
       setUploadError(
         err instanceof Error ? err.message : "Could not delete file locally."
@@ -317,14 +381,14 @@ export default function FilesView({
       URL.revokeObjectURL(fileUrl);
     }
 
-    setJobFiles((prev) => prev.filter((file) => file.id !== fileId));
+    setEntityFiles((prev) => prev.filter((file) => file.id !== fileId));
     setFilePendingDelete(null);
     setMenuFileId(null);
     setDeleting(false);
   }
 
   function handleDragEnter(e: DragEvent) {
-    if (!isJobFiles) return;
+    if (!isEntityFiles) return;
     e.preventDefault();
     e.stopPropagation();
     dragDepth.current += 1;
@@ -332,7 +396,7 @@ export default function FilesView({
   }
 
   function handleDragLeave(e: DragEvent) {
-    if (!isJobFiles) return;
+    if (!isEntityFiles) return;
     e.preventDefault();
     e.stopPropagation();
     dragDepth.current = Math.max(0, dragDepth.current - 1);
@@ -340,14 +404,14 @@ export default function FilesView({
   }
 
   function handleDragOver(e: DragEvent) {
-    if (!isJobFiles) return;
+    if (!isEntityFiles) return;
     e.preventDefault();
     e.stopPropagation();
     e.dataTransfer.dropEffect = "copy";
   }
 
   function handleDrop(e: DragEvent) {
-    if (!isJobFiles) return;
+    if (!isEntityFiles) return;
     e.preventDefault();
     e.stopPropagation();
     dragDepth.current = 0;
@@ -357,14 +421,14 @@ export default function FilesView({
     }
   }
 
-  const activeCategoryLabel = isJobFilesTab(tab)
+  const activeCategoryLabel = isEntityFilesTab(tab)
     ? JOB_DRAWING_LABELS[tab]
     : "files";
 
   return (
     <div
       className={
-        isJobFiles
+        isEntityFiles
           ? "flex h-full min-h-0 flex-col gap-3"
           : "space-y-4"
       }
@@ -430,14 +494,14 @@ export default function FilesView({
         className={
           showSidebar
             ? "grid min-h-0 flex-1 grid-cols-1 gap-4 xl:grid-cols-[1fr_280px]"
-            : isJobFiles
+            : isEntityFiles
               ? "flex min-h-0 flex-1 flex-col"
               : ""
         }
       >
         <div
           className={`flex min-h-0 flex-col rounded-lg border border-gray-200 bg-white ${
-            isJobFiles ? "flex-1" : ""
+            isEntityFiles ? "flex-1" : ""
           }`}
         >
           <div className="flex shrink-0 gap-1 border-b border-gray-200 px-4">
@@ -459,7 +523,7 @@ export default function FilesView({
             ))}
           </div>
 
-          {isJobFiles ? (
+          {isEntityFiles ? (
             <input
               ref={fileInputRef}
               type="file"
@@ -480,7 +544,7 @@ export default function FilesView({
 
           <div
             className={`relative flex min-h-0 flex-1 flex-col ${
-              isJobFiles
+              isEntityFiles
                 ? dragging
                   ? "bg-burgundy/5 ring-2 ring-inset ring-burgundy"
                   : ""
@@ -497,7 +561,7 @@ export default function FilesView({
               </div>
             ) : (
               <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-                <div className={`min-h-0 flex-1 overflow-auto ${isJobFiles ? "pb-16" : ""}`}>
+                <div className={`min-h-0 flex-1 overflow-auto ${isEntityFiles ? "pb-16" : ""}`}>
                   <table className="w-full min-w-[700px] text-left text-sm">
                     <thead>
                       <tr className="border-b border-gray-100 bg-gray-50 text-xs font-medium uppercase tracking-wide text-gray-500">
@@ -513,7 +577,7 @@ export default function FilesView({
                         <tr>
                           <td colSpan={5} className="p-0">
                             <div className="flex min-h-[12rem] flex-col items-center justify-center gap-1 px-6 py-16 text-center">
-                              {isJobFiles ? (
+                              {isEntityFiles ? (
                                 <div className="flex flex-col items-center gap-2">
                                   <p className="text-sm font-medium text-gray-700">
                                     {uploading
@@ -564,12 +628,12 @@ export default function FilesView({
                             <td className="px-4 py-3">
                               <span
                                 className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium ${
-                                  isJobFiles
+                                  isEntityFiles
                                     ? "bg-burgundy/10 text-burgundy"
                                     : CATEGORY_STYLES[file.category]
                                 }`}
                               >
-                                {fileCategoryLabel(file, isJobFiles)}
+                                {fileCategoryLabel(file, isEntityFiles)}
                               </span>
                             </td>
                             <td className="px-4 py-3 text-gray-600">
@@ -586,7 +650,7 @@ export default function FilesView({
                               </span>
                             </td>
                             <td className="relative px-4 py-3">
-                              {isJobFiles ? (
+                              {isEntityFiles ? (
                                 <div className="relative">
                                   <button
                                     type="button"
@@ -640,7 +704,7 @@ export default function FilesView({
                   </table>
                 </div>
 
-                {isJobFiles ? (
+                {isEntityFiles ? (
                   <div className="pointer-events-none absolute inset-x-0 bottom-0 flex justify-end p-3">
                     <button
                       type="button"

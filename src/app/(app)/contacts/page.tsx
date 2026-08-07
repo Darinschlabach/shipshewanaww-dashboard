@@ -98,19 +98,23 @@ export default function ContactsPage() {
 
   async function handleCreate(e: React.FormEvent) {
     e.preventDefault();
-    const supabase = createClient();
-    await supabase.from("contacts").insert({
-      name: form.name.trim(),
-      email: form.email || null,
-      phone: form.phone || null,
-      fax: form.fax || null,
-      address: form.address || null,
-      birthday:
-        form.contact_type === "Employees" && form.birthday
-          ? form.birthday
-          : null,
-      contact_type: form.contact_type,
+    const res = await fetch("/api/contacts", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name: form.name.trim(),
+        email: form.email || null,
+        phone: form.phone || null,
+        fax: form.fax || null,
+        address: form.address || null,
+        birthday:
+          form.contact_type === "Employees" && form.birthday
+            ? form.birthday
+            : null,
+        contact_type: form.contact_type,
+      }),
     });
+    if (!res.ok) return;
     setShowModal(false);
     setForm(emptyForm);
     load();

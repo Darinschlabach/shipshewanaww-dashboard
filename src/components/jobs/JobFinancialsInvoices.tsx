@@ -144,9 +144,10 @@ export default function JobFinancialsInvoices({ jobId }: JobFinancialsInvoicesPr
         .maybeSingle()).data?.name ??
       "Unknown Customer";
 
-    const { data: created, error } = await supabase
-      .from("invoices")
-      .insert({
+    const res = await fetch("/api/invoices", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
         invoice_number: nextInvoiceNumber(allInvoices),
         job_id: jobId,
         customer_id: job.customer_id,
@@ -154,21 +155,23 @@ export default function JobFinancialsInvoices({ jobId }: JobFinancialsInvoicesPr
         invoice_date: new Date().toISOString().slice(0, 10),
         due_date: dueDate || null,
         amount: 0,
-        balance: 0,
         status: "open",
-      })
-      .select("id")
-      .single();
+      }),
+    });
+    const json = (await res.json().catch(() => ({}))) as {
+      error?: string;
+      data?: { id: string };
+    };
 
-    if (error || !created) {
-      setCreateError(error?.message || "Could not create invoice.");
+    if (!res.ok || !json.data) {
+      setCreateError(json.error || "Could not create invoice.");
       setCreating(false);
       return;
     }
 
     setShowNewModal(false);
     setCreating(false);
-    router.push(`/invoices/${created.id}`);
+    router.push(`/invoices/${json.data.id}`);
   }
 
   if (loading) {

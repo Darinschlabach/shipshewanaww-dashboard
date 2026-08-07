@@ -76,7 +76,7 @@ export function buildQuoteDetail(lead: Lead): QuoteDetailMeta {
       { id: "a5", label: "Approval Received", done: approved },
     ],
     customerMessage: `Dear ${customerName.split(" ")[0] ?? "Customer"},\n\nThank you for the opportunity to provide this proposal for your ${lead.project_type.toLowerCase() || "project"}. We are excited about the project and confident our team can deliver the quality craftsmanship you expect.\n\nPlease review the attached quote at your convenience. We are happy to answer any questions or schedule a walkthrough.\n\nBest regards,\n${lead.designer ?? "Shipshewana Woodworks"}`,
-    fileCount: 6,
+    fileCount: 0,
   };
 }
 

@@ -11,7 +11,7 @@ import type { Lead } from "@/lib/types";
 
 const PAGE_WIDTH_IN = 8.5;
 const PAGE_HEIGHT_IN = 11;
-const MARGIN_IN = 0.5;
+const MARGIN_IN = 0.25;
 const RENDER_WIDTH_PX = 816;
 
 function waitForImages(root: HTMLElement): Promise<void> {
