@@ -1,0 +1,22 @@
+---
+description: Production deploys from main — push live changes there
+alwaysApply: true
+---
+
+# Production deploys from `main`
+
+This app’s live/production site deploys from the **`main`** branch only.
+
+Feature-branch pushes create preview deploys at most — they do **not** update the production suite.
+
+## When the user asks to push, deploy, go live, or ship
+
+1. Ensure the work is on (or merged into) **`main`**.
+2. Push **`origin/main`**.
+3. Tell the user production updates from `main`, not from feature branches.
+
+## Default workflow
+
+- Prefer committing and pushing on **`main`** for this project unless the user explicitly wants a feature branch / PR-only flow.
+- If work is on a feature branch and the user wants it live, merge into `main` and push `main` — do not stop after pushing only the feature branch.
+- Do not force-push `main`.
