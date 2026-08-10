@@ -1,71 +1,102 @@
-import { createClient } from "@/lib/supabase/client";
 import {
-  fileTypeFromFile,
-  formatFileSize,
-  getInitials,
   type CompanyFile,
-  type FileType,
   type JobFilesTab,
 } from "@/lib/files";
+import type { QuoteSharePointCategory } from "@/lib/integrations/microsoft-graph-quote-folders";
 
-export type QuoteFileRow = {
-  id: string;
-  quote_id: string;
-  name: string;
-  storage_path: string;
-  drawing_category: JobFilesTab;
-  file_type: FileType;
-  size_bytes: number;
-  uploaded_by_id: string | null;
-  uploaded_by_name: string;
-  created_at: string;
-};
+function isQuoteSharePointCategory(
+  value: JobFilesTab
+): value is QuoteSharePointCategory {
+  return (
+    value === "provided_drawings" ||
+    value === "quote_forms" ||
+    value === "misc"
+  );
+}
 
-function sanitizeFileName(name: string): string {
-  return name.replace(/[^\w.\-()+ ]+/g, "_").slice(0, 180);
+export async function ensureQuoteSharePointFolder(quoteId: string): Promise<{
+  ok: boolean;
+  error: string | null;
+}> {
+  try {
+    const res = await fetch(
+      `/api/quotes/${encodeURIComponent(quoteId)}/sharepoint/ensure-folder`,
+      { method: "POST" }
+    );
+    const json = (await res.json()) as { ok?: boolean; error?: string };
+    if (!res.ok || json.ok === false) {
+      return { ok: false, error: json.error ?? "Could not ensure SharePoint folder." };
+    }
+    return { ok: true, error: null };
+  } catch (err) {
+    return {
+      ok: false,
+      error:
+        err instanceof Error
+          ? err.message
+          : "Could not ensure SharePoint folder.",
+    };
+  }
+}
+
+export async function renameQuoteSharePointFolderClient(opts: {
+  quoteId: string;
+  jobName: string;
+}): Promise<{ ok: boolean; error: string | null }> {
+  try {
+    const res = await fetch(
+      `/api/quotes/${encodeURIComponent(opts.quoteId)}/sharepoint/rename-folder`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ jobName: opts.jobName }),
+      }
+    );
+    const json = (await res.json()) as { ok?: boolean; error?: string };
+    if (!res.ok || json.ok === false) {
+      return {
+        ok: false,
+        error: json.error ?? "Could not rename SharePoint folder.",
+      };
+    }
+    return { ok: true, error: null };
+  } catch (err) {
+    return {
+      ok: false,
+      error:
+        err instanceof Error
+          ? err.message
+          : "Could not rename SharePoint folder.",
+    };
+  }
 }
 
 export async function listQuoteFiles(quoteId: string): Promise<{
   files: CompanyFile[];
   error: string | null;
 }> {
-  const supabase = createClient();
-  const { data, error } = await supabase
-    .from("quote_files")
-    .select("*")
-    .eq("quote_id", quoteId)
-    .order("created_at", { ascending: false });
-
-  if (error) {
-    return { files: [], error: error.message };
+  try {
+    const res = await fetch(
+      `/api/quotes/${encodeURIComponent(quoteId)}/sharepoint/files`
+    );
+    const json = (await res.json()) as {
+      ok?: boolean;
+      error?: string;
+      files?: CompanyFile[];
+    };
+    if (!res.ok || json.ok === false) {
+      return { files: [], error: json.error ?? "Could not load SharePoint files." };
+    }
+    return { files: json.files ?? [], error: null };
+  } catch (err) {
+    return {
+      files: [],
+      error:
+        err instanceof Error
+          ? err.message
+          : "Could not load SharePoint files.",
+    };
   }
-
-  const rows = (data as QuoteFileRow[]) ?? [];
-  const files: CompanyFile[] = [];
-
-  for (const row of rows) {
-    const { data: signed, error: signError } = await supabase.storage
-      .from("quote-files")
-      .createSignedUrl(row.storage_path, 60 * 60 * 24);
-
-    files.push({
-      id: row.id,
-      name: row.name,
-      category: "Shop Resources",
-      modifiedAt: row.created_at,
-      size: formatFileSize(Number(row.size_bytes) || 0),
-      type: row.file_type,
-      uploadedBy: row.uploaded_by_name,
-      uploaderInitials: getInitials(row.uploaded_by_name),
-      starred: false,
-      isFolder: false,
-      quoteId: row.quote_id,
-      drawingCategory: row.drawing_category,
-      url: signError ? null : (signed?.signedUrl ?? null),
-    });
-  }
-
-  return { files, error: null };
 }
 
 export async function uploadQuoteFiles(opts: {
@@ -75,117 +106,140 @@ export async function uploadQuoteFiles(opts: {
   uploadedByName: string;
   uploadedById: string | null;
 }): Promise<{ files: CompanyFile[]; error: string | null }> {
-  const {
-    quoteId,
-    drawingCategory,
-    files,
-    uploadedByName,
-    uploadedById,
-  } = opts;
+  const { quoteId, drawingCategory, files, uploadedByName } = opts;
   if (files.length === 0) return { files: [], error: null };
-
-  const supabase = createClient();
-  const created: CompanyFile[] = [];
-
-  for (const file of files) {
-    const id =
-      typeof crypto !== "undefined" && "randomUUID" in crypto
-        ? crypto.randomUUID()
-        : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
-    const storagePath = `${quoteId}/${drawingCategory}/${id}-${sanitizeFileName(file.name)}`;
-
-    const { error: uploadError } = await supabase.storage
-      .from("quote-files")
-      .upload(storagePath, file, {
-        cacheControl: "3600",
-        upsert: false,
-        contentType: file.type || undefined,
-      });
-
-    if (uploadError) {
-      return {
-        files: created,
-        error: uploadError.message,
-      };
-    }
-
-    const fileType = fileTypeFromFile(file);
-    const { data: row, error: insertError } = await supabase
-      .from("quote_files")
-      .insert({
-        id,
-        quote_id: quoteId,
-        name: file.name,
-        storage_path: storagePath,
-        drawing_category: drawingCategory,
-        file_type: fileType,
-        size_bytes: file.size,
-        uploaded_by_id: uploadedById,
-        uploaded_by_name: uploadedByName,
-      })
-      .select("*")
-      .single();
-
-    if (insertError || !row) {
-      await supabase.storage.from("quote-files").remove([storagePath]);
-      return {
-        files: created,
-        error: insertError?.message ?? "Could not save file metadata.",
-      };
-    }
-
-    const saved = row as QuoteFileRow;
-    const { data: signed } = await supabase.storage
-      .from("quote-files")
-      .createSignedUrl(saved.storage_path, 60 * 60 * 24);
-
-    created.push({
-      id: saved.id,
-      name: saved.name,
-      category: "Shop Resources",
-      modifiedAt: saved.created_at,
-      size: formatFileSize(Number(saved.size_bytes) || 0),
-      type: saved.file_type,
-      uploadedBy: saved.uploaded_by_name,
-      uploaderInitials: getInitials(saved.uploaded_by_name),
-      starred: false,
-      isFolder: false,
-      quoteId: saved.quote_id,
-      drawingCategory: saved.drawing_category,
-      url: signed?.signedUrl ?? URL.createObjectURL(file),
-    });
+  if (!isQuoteSharePointCategory(drawingCategory)) {
+    return {
+      files: [],
+      error: "This file category is not available for quotes.",
+    };
   }
 
-  return { files: created, error: null };
+  try {
+    const form = new FormData();
+    form.set("category", drawingCategory);
+    form.set("uploadedByName", uploadedByName);
+    for (const file of files) {
+      form.append("files", file, file.name);
+    }
+
+    const res = await fetch(
+      `/api/quotes/${encodeURIComponent(quoteId)}/sharepoint/files`,
+      { method: "POST", body: form }
+    );
+    const json = (await res.json()) as {
+      ok?: boolean;
+      error?: string;
+      files?: CompanyFile[];
+    };
+    if (!res.ok || json.ok === false) {
+      return {
+        files: json.files ?? [],
+        error: json.error ?? "Could not upload to SharePoint.",
+      };
+    }
+    return { files: json.files ?? [], error: null };
+  } catch (err) {
+    return {
+      files: [],
+      error:
+        err instanceof Error
+          ? err.message
+          : "Could not upload to SharePoint.",
+    };
+  }
 }
 
 export async function deleteQuoteFile(fileId: string): Promise<{ error: string | null }> {
-  const supabase = createClient();
-  const { data, error } = await supabase
-    .from("quote_files")
-    .select("storage_path")
-    .eq("id", fileId)
-    .maybeSingle();
+  // Prefer deleteQuoteSharePointFile with quoteId when available.
+  return {
+    error:
+      "Missing quote context for SharePoint delete. Use deleteQuoteSharePointFile.",
+  };
+}
 
-  if (error && !error.message.toLowerCase().includes("quote_files")) {
-    return { error: error.message };
-  }
-
-  if (data?.storage_path) {
-    const { error: storageError } = await supabase.storage
-      .from("quote-files")
-      .remove([data.storage_path as string]);
-    if (storageError) {
-      return { error: storageError.message };
+export async function deleteQuoteSharePointFile(opts: {
+  quoteId: string;
+  itemId: string;
+}): Promise<{ error: string | null }> {
+  try {
+    const res = await fetch(
+      `/api/quotes/${encodeURIComponent(opts.quoteId)}/sharepoint/files/${encodeURIComponent(opts.itemId)}`,
+      { method: "DELETE" }
+    );
+    const json = (await res.json()) as { ok?: boolean; error?: string };
+    if (!res.ok || json.ok === false) {
+      return { error: json.error ?? "Could not delete SharePoint file." };
     }
-    const { error: deleteError } = await supabase
-      .from("quote_files")
-      .delete()
-      .eq("id", fileId);
-    if (deleteError) {
-      return { error: deleteError.message };
-    }
+    return { error: null };
+  } catch (err) {
+    return {
+      error:
+        err instanceof Error
+          ? err.message
+          : "Could not delete SharePoint file.",
+    };
   }
+}
 
-  return { error: null };
+export async function renameQuoteSharePointFile(opts: {
+  quoteId: string;
+  itemId: string;
+  newName: string;
+}): Promise<{ file: CompanyFile | null; error: string | null }> {
+  try {
+    const res = await fetch(
+      `/api/quotes/${encodeURIComponent(opts.quoteId)}/sharepoint/files/${encodeURIComponent(opts.itemId)}`,
+      {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: opts.newName }),
+      }
+    );
+    const json = (await res.json()) as {
+      ok?: boolean;
+      error?: string;
+      file?: CompanyFile;
+    };
+    if (!res.ok || json.ok === false || !json.file) {
+      return {
+        file: null,
+        error: json.error ?? "Could not rename SharePoint file.",
+      };
+    }
+    return { file: json.file, error: null };
+  } catch (err) {
+    return {
+      file: null,
+      error:
+        err instanceof Error
+          ? err.message
+          : "Could not rename SharePoint file.",
+    };
+  }
+}
+
+export async function openQuoteSharePointFile(opts: {
+  quoteId: string;
+  itemId: string;
+}): Promise<{ url: string | null; error: string | null }> {
+  try {
+    const res = await fetch(
+      `/api/quotes/${encodeURIComponent(opts.quoteId)}/sharepoint/files/${encodeURIComponent(opts.itemId)}`
+    );
+    const json = (await res.json()) as {
+      ok?: boolean;
+      error?: string;
+      url?: string;
+    };
+    if (!res.ok || json.ok === false || !json.url) {
+      return { url: null, error: json.error ?? "Could not open file." };
+    }
+    return { url: json.url, error: null };
+  } catch (err) {
+    return {
+      url: null,
+      error: err instanceof Error ? err.message : "Could not open file.",
+    };
+  }
 }

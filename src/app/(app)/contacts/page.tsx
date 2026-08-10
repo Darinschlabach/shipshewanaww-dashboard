@@ -41,23 +41,43 @@ export default function ContactsPage() {
   const [search, setSearch] = useState("");
   const [typeFilter, setTypeFilter] = useState<TypeFilter>("All");
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [showModal, setShowModal] = useState(false);
   const [showMap, setShowMap] = useState(false);
   const [form, setForm] = useState(emptyForm);
+  const [creating, setCreating] = useState(false);
+  const [createError, setCreateError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
-    const supabase = createClient();
-    const { data: contactsData } = await supabase
-      .from("contacts")
-      .select("*")
-      .order("name");
+    setLoading(true);
+    setLoadError(null);
+    try {
+      const supabase = createClient();
+      const { data: contactsData, error } = await supabase
+        .from("contacts")
+        .select("*")
+        .order("name");
 
-    setContacts((contactsData as Contact[]) ?? []);
-    setLoading(false);
+      if (error) {
+        setLoadError(error.message);
+        setContacts([]);
+        return;
+      }
+
+      setContacts((contactsData as Contact[]) ?? []);
+    } catch (err) {
+      console.error("Contacts load failed:", err);
+      setLoadError(
+        err instanceof Error ? err.message : "Could not load contacts."
+      );
+      setContacts([]);
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
   useEffect(() => {
-    load();
+    void load();
   }, [load]);
 
   useEffect(() => {
@@ -98,26 +118,43 @@ export default function ContactsPage() {
 
   async function handleCreate(e: React.FormEvent) {
     e.preventDefault();
-    const res = await fetch("/api/contacts", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        name: form.name.trim(),
-        email: form.email || null,
-        phone: form.phone || null,
-        fax: form.fax || null,
-        address: form.address || null,
-        birthday:
-          form.contact_type === "Employees" && form.birthday
-            ? form.birthday
-            : null,
-        contact_type: form.contact_type,
-      }),
-    });
-    if (!res.ok) return;
-    setShowModal(false);
-    setForm(emptyForm);
-    load();
+    setCreating(true);
+    setCreateError(null);
+    try {
+      const res = await fetch("/api/contacts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: form.name.trim(),
+          email: form.email || null,
+          phone: form.phone || null,
+          fax: form.fax || null,
+          address: form.address || null,
+          birthday:
+            form.contact_type === "Employees" && form.birthday
+              ? form.birthday
+              : null,
+          contact_type: form.contact_type,
+        }),
+      });
+      const json = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        data?: Contact;
+      };
+      if (!res.ok || !json.data) {
+        setCreateError(json.error || "Could not create contact.");
+        return;
+      }
+      setShowModal(false);
+      setForm(emptyForm);
+      await load();
+    } catch (err) {
+      setCreateError(
+        err instanceof Error ? err.message : "Could not create contact."
+      );
+    } finally {
+      setCreating(false);
+    }
   }
 
   return (
@@ -175,6 +212,17 @@ export default function ContactsPage() {
 
       {loading ? (
         <p className="text-gray-500">Loading…</p>
+      ) : loadError ? (
+        <div className="rounded-lg border border-red-200 bg-red-50 p-4">
+          <p className="text-sm text-red-700">{loadError}</p>
+          <button
+            type="button"
+            onClick={() => void load()}
+            className="mt-3 text-sm font-medium text-burgundy hover:underline"
+          >
+            Retry
+          </button>
+        </div>
       ) : (
         <div className="space-y-3">
           {filtered.map((contact, i) => (
@@ -204,8 +252,20 @@ export default function ContactsPage() {
       )}
 
       {showModal && (
-        <Modal title="New contact" onClose={() => setShowModal(false)}>
+        <Modal
+          title="New contact"
+          onClose={() => {
+            if (creating) return;
+            setShowModal(false);
+            setCreateError(null);
+          }}
+        >
           <form onSubmit={handleCreate} className="space-y-4">
+            {createError ? (
+              <p className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+                {createError}
+              </p>
+            ) : null}
             <div>
               <label className="mb-1 block text-sm font-medium">Contact Name</label>
               <input
@@ -279,11 +339,18 @@ export default function ContactsPage() {
               </select>
             </div>
             <div className="flex justify-end gap-3">
-              <Button type="button" onClick={() => setShowModal(false)}>
+              <Button
+                type="button"
+                disabled={creating}
+                onClick={() => {
+                  setShowModal(false);
+                  setCreateError(null);
+                }}
+              >
                 Cancel
               </Button>
-              <Button type="submit" variant="primary">
-                Create contact
+              <Button type="submit" variant="primary" disabled={creating}>
+                {creating ? "Creating…" : "Create contact"}
               </Button>
             </div>
           </form>

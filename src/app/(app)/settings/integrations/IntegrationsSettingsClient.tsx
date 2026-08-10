@@ -1,8 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { IconPlugConnected } from "@tabler/icons-react";
+import { IconBrandOnedrive, IconPlugConnected } from "@tabler/icons-react";
 import Button from "@/components/Button";
 import { createClient } from "@/lib/supabase/client";
 
@@ -215,6 +216,32 @@ export default function IntegrationsSettingsClient() {
                 Connect QuickBooks
               </Button>
             )}
+          </div>
+        </div>
+      </section>
+
+      <section className="mt-6 rounded-lg border border-gray-200 bg-white p-5 shadow-sm">
+        <div className="flex items-start justify-between gap-4">
+          <div className="flex items-start gap-3">
+            <span className="mt-0.5 flex h-10 w-10 items-center justify-center rounded-md bg-burgundy/10 text-burgundy">
+              <IconBrandOnedrive size={22} />
+            </span>
+            <div>
+              <h2 className="text-base font-semibold text-gray-900">
+                Microsoft Graph (setup)
+              </h2>
+              <p className="mt-1 text-sm text-gray-600">
+                Temporary discovery tools to identify the company SharePoint /
+                OneDrive library and Jobs folder. No job sync yet.
+              </p>
+            </div>
+          </div>
+          <div className="flex shrink-0 flex-col gap-2">
+            <Link href="/settings/integrations/microsoft-graph">
+              <Button type="button" variant="secondary">
+                Open discovery
+              </Button>
+            </Link>
           </div>
         </div>
       </section>

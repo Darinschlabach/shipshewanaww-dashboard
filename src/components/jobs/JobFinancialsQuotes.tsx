@@ -198,19 +198,23 @@ export default function JobFinancialsQuotes({ jobId }: JobFinancialsQuotesProps)
       designer = profile?.full_name ?? null;
     }
 
-    const { error } = await supabase.from("leads").insert({
-      customer_name: customerName,
-      project_type: name,
-      contact_id: resolvedContactId,
-      job_id: jobId,
-      est_value: 0,
-      status: "draft",
-      quote_number: quoteNumber,
-      designer,
-    });
+    const { data: createdLead, error } = await supabase
+      .from("leads")
+      .insert({
+        customer_name: customerName,
+        project_type: name,
+        contact_id: resolvedContactId,
+        job_id: jobId,
+        est_value: 0,
+        status: "draft",
+        quote_number: quoteNumber,
+        designer,
+      })
+      .select("id")
+      .single();
 
-    if (error) {
-      const msg = error.message ?? "";
+    if (error || !createdLead) {
+      const msg = error?.message ?? "";
       const schemaHint =
         msg.includes("schema cache") || msg.includes("column")
           ? " Run supabase/migrations/20260622000001_leads_job_id.sql in the Supabase SQL Editor, then try again."
@@ -219,6 +223,13 @@ export default function JobFinancialsQuotes({ jobId }: JobFinancialsQuotesProps)
       setCreating(false);
       return;
     }
+
+    void fetch(
+      `/api/quotes/${encodeURIComponent(createdLead.id)}/sharepoint/ensure-folder`,
+      { method: "POST" }
+    ).catch(() => {
+      /* Files tab retries ensure-folder */
+    });
 
     setShowNewModal(false);
     setCreating(false);

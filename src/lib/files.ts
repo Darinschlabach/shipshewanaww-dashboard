@@ -12,7 +12,12 @@ export type CompanyFilesTab = "all" | "folders" | "shared" | "recent" | "trash";
 export type JobFilesTab =
   | "provided_drawings"
   | "production_drawings"
-  | "misc";
+  | "quote_forms"
+  | "misc"
+  | "cv_client_drawings"
+  | "appliance_specs"
+  | "purchase_orders"
+  | "invoices";
 export type FilesTab = CompanyFilesTab | JobFilesTab;
 
 export interface CompanyFile {
@@ -32,6 +37,8 @@ export interface CompanyFile {
   trashed?: boolean;
   /** Job / quote Files tab grouping */
   drawingCategory?: JobFilesTab;
+  /** Nested folder under Production Drawings (jobs only) */
+  productionSubfolder?: "face_frame_drawings" | "assembly_drawings";
   /** Local blob URL or remote URL for opening the file */
   url?: string | null;
 }
@@ -357,7 +364,12 @@ export function filterCompanyFiles(
       break;
     case "provided_drawings":
     case "production_drawings":
+    case "quote_forms":
     case "misc":
+    case "cv_client_drawings":
+    case "appliance_specs":
+    case "purchase_orders":
+    case "invoices":
       list = list
         .filter((f) => (f.drawingCategory ?? "misc") === opts.tab)
         .sort((a, b) =>
@@ -397,6 +409,15 @@ export function formatFileSize(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(bytes < 10 * 1024 * 1024 ? 1 : 0)} MB`;
 }
 
+export function fileTypeFromName(fileName: string): FileType {
+  const name = fileName.toLowerCase();
+  if (/\.(png|jpe?g|gif|webp|bmp|svg)$/.test(name)) return "image";
+  if (/\.(xlsx?|csv)$/.test(name)) return "spreadsheet";
+  if (name.endsWith(".pdf")) return "pdf";
+  if (/\.(docx?|rtf|txt)$/.test(name)) return "doc";
+  return "doc";
+}
+
 export function fileTypeFromFile(file: File): FileType {
   const name = file.name.toLowerCase();
   const mime = file.type.toLowerCase();
@@ -417,13 +438,18 @@ export function fileTypeFromFile(file: File): FileType {
   ) {
     return "doc";
   }
-  return "doc";
+  return fileTypeFromName(file.name);
 }
 
 export const JOB_DRAWING_LABELS: Record<JobFilesTab, string> = {
-  provided_drawings: "Provided Drawings",
+  provided_drawings: "Customer Provided Drawings",
   production_drawings: "Production Drawings",
-  misc: "Misc.",
+  quote_forms: "Quotes",
+  misc: "Misc",
+  cv_client_drawings: "CV Client Drawings",
+  appliance_specs: "Appliance Specs",
+  purchase_orders: "Purchase Orders",
+  invoices: "Invoices",
 };
 
 export function createJobUploadedFile(opts: {

@@ -89,19 +89,38 @@ export default function QuoteDetailPage() {
       .select()
       .single();
 
-    if (job) {
-      await supabase
-        .from("leads")
-        .update({ status: "converted", converted_job_id: job.id, job_id: job.id })
-        .eq("id", quote.id);
-
-      await supabase.from("production_jobs").insert({
-        job_id: job.id,
-        kanban_status: "cutting",
-      });
-
-      router.push(`/jobs/${job.id}`);
+    if (!job) {
+      setConverting(false);
+      return;
     }
+
+    const { convertQuoteSharePointToJobClient } = await import("@/lib/job-files");
+    const sharePoint = await convertQuoteSharePointToJobClient({
+      quoteId: quote.id,
+      jobId: job.id,
+    });
+
+    if (!sharePoint.ok) {
+      await supabase.from("jobs").delete().eq("id", job.id);
+      setConverting(false);
+      window.alert(
+        sharePoint.error ??
+          "Could not move the SharePoint folder to Jobs. Conversion was cancelled."
+      );
+      return;
+    }
+
+    await supabase
+      .from("leads")
+      .update({ status: "converted", converted_job_id: job.id, job_id: job.id })
+      .eq("id", quote.id);
+
+    await supabase.from("production_jobs").insert({
+      job_id: job.id,
+      kanban_status: "cutting",
+    });
+
+    router.push(`/jobs/${job.id}`);
     setConverting(false);
   }
 

@@ -83,23 +83,47 @@ function skippedResult(): SyncResult {
 }
 
 export async function isQuickBooksConnected(): Promise<boolean> {
-  const tokens = await getValidQuickBooksAccessToken();
-  return Boolean(tokens);
+  try {
+    const tokens = await getValidQuickBooksAccessToken();
+    return Boolean(tokens);
+  } catch (err) {
+    console.error("QuickBooks connection check failed:", err);
+    return false;
+  }
 }
 
 export async function syncContactToQuickBooks(
   contactId: string
 ): Promise<SyncResult> {
-  const connected = await isQuickBooksConnected();
-  if (!connected) {
-    await setSyncState("contacts", contactId, {
-      qb_sync_status: "not_synced",
-      qb_sync_error: null,
-    });
+  let connected = false;
+  try {
+    connected = await isQuickBooksConnected();
+  } catch (err) {
+    console.error("QuickBooks connection check failed:", err);
     return skippedResult();
   }
 
-  await markPending("contacts", contactId);
+  if (!connected) {
+    try {
+      await setSyncState("contacts", contactId, {
+        qb_sync_status: "not_synced",
+        qb_sync_error: null,
+      });
+    } catch (err) {
+      // Migrations/admin may be missing — contact CRUD must still succeed.
+      console.error("Could not clear contact QB sync state:", err);
+    }
+    return skippedResult();
+  }
+
+  try {
+    await markPending("contacts", contactId);
+  } catch (err) {
+    console.error("Could not mark contact pending for QB sync:", err);
+    return failedResult(
+      err instanceof Error ? err.message : "Could not mark contact pending."
+    );
+  }
 
   const { data: contact, error } = await admin()
     .from("contacts")
@@ -111,10 +135,14 @@ export async function syncContactToQuickBooks(
 
   if (error || !contact) {
     const message = error?.message || "Contact not found.";
-    await setSyncState("contacts", contactId, {
-      qb_sync_status: "failed",
-      qb_sync_error: message,
-    });
+    try {
+      await setSyncState("contacts", contactId, {
+        qb_sync_status: "failed",
+        qb_sync_error: message,
+      });
+    } catch (err) {
+      console.error("Could not mark contact sync failed:", err);
+    }
     return failedResult(message);
   }
 

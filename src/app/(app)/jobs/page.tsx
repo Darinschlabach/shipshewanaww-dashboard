@@ -198,6 +198,12 @@ export default function JobsPage() {
         kanban_status: "cutting",
         due_date: form.due_date || null,
       });
+      void fetch(
+        `/api/jobs/${encodeURIComponent(job.id)}/sharepoint/ensure-folder`,
+        { method: "POST" }
+      ).catch(() => {
+        /* Files tab retries ensure-folder */
+      });
       setShowModal(false);
       router.push(`/jobs/${job.id}`);
     }

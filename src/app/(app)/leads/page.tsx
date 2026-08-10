@@ -301,6 +301,14 @@ export default function LeadsPage() {
     setForm(emptyForm);
     setCreating(false);
     await loadLeads();
+
+    void fetch(
+      `/api/quotes/${encodeURIComponent(lead.id)}/sharepoint/ensure-folder`,
+      { method: "POST" }
+    ).catch(() => {
+      /* folder ensure is best-effort on create; Files tab retries */
+    });
+
     router.push(`/leads/${lead.id}`);
   }
 
@@ -332,20 +340,39 @@ export default function LeadsPage() {
       .select()
       .single();
 
-    if (job) {
-      await supabase
-        .from("leads")
-        .update({ status: "converted", converted_job_id: job.id, job_id: job.id })
-        .eq("id", convertLead.id);
-
-      await supabase.from("production_jobs").insert({
-        job_id: job.id,
-        kanban_status: "cutting",
-      });
-
-      setConvertLead(null);
-      router.push(`/jobs/${job.id}`);
+    if (!job) {
+      setConverting(false);
+      return;
     }
+
+    const { convertQuoteSharePointToJobClient } = await import("@/lib/job-files");
+    const sharePoint = await convertQuoteSharePointToJobClient({
+      quoteId: convertLead.id,
+      jobId: job.id,
+    });
+
+    if (!sharePoint.ok) {
+      await supabase.from("jobs").delete().eq("id", job.id);
+      setConverting(false);
+      window.alert(
+        sharePoint.error ??
+          "Could not move the SharePoint folder to Jobs. Conversion was cancelled."
+      );
+      return;
+    }
+
+    await supabase
+      .from("leads")
+      .update({ status: "converted", converted_job_id: job.id, job_id: job.id })
+      .eq("id", convertLead.id);
+
+    await supabase.from("production_jobs").insert({
+      job_id: job.id,
+      kanban_status: "cutting",
+    });
+
+    setConvertLead(null);
+    router.push(`/jobs/${job.id}`);
     setConverting(false);
   }
 

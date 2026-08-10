@@ -5,6 +5,7 @@ import Link from "next/link";
 import {
   IconArrowLeft,
   IconArrowRight,
+  IconDotsVertical,
   IconFileTypePdf,
   IconMail,
   IconMapPin,
@@ -24,8 +25,7 @@ import {
   buildQuoteDetail,
   formatQuoteDisplayNumber,
 } from "@/lib/quote-detail";
-import { listQuoteFiles } from "@/lib/quote-files";
-import { localListQuoteFiles } from "@/lib/quote-files-local";
+import { listQuoteFiles, renameQuoteSharePointFolderClient } from "@/lib/quote-files";
 import { formatQuoteNumber } from "@/lib/quotes";
 import {
   buildQuoteRoomSummaries,
@@ -75,6 +75,7 @@ export default function QuoteDetailView({
   const [showUnconvert, setShowUnconvert] = useState(false);
   const [showDelete, setShowDelete] = useState(false);
   const [showRenameJob, setShowRenameJob] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
   const [jobName, setJobName] = useState(quote.project_type);
   const [savingJobName, setSavingJobName] = useState(false);
   const [roomSummaries, setRoomSummaries] = useState<QuoteRoomSummaryLine[]>([]);
@@ -103,15 +104,9 @@ export default function QuoteDetailView({
     let cancelled = false;
     async function loadFileCount() {
       const remote = await listQuoteFiles(quote.id);
-      const local = await localListQuoteFiles(quote.id);
       if (cancelled) return;
       if (!remote.error) {
-        const byId = new Set<string>();
-        for (const file of local) byId.add(file.id);
-        for (const file of remote.files) byId.add(file.id);
-        setFileCount(byId.size);
-      } else {
-        setFileCount(local.length);
+        setFileCount(remote.files.length);
       }
     }
     void loadFileCount();
@@ -188,6 +183,13 @@ export default function QuoteDetailView({
       .from("leads")
       .update({ project_type: name })
       .eq("id", quote.id);
+
+    // Keep SharePoint folder name in sync via DriveItem ID (no duplicate folder).
+    await renameQuoteSharePointFolderClient({
+      quoteId: quote.id,
+      jobName: name,
+    });
+
     setSavingJobName(false);
     setShowRenameJob(false);
     onQuoteUpdated?.();
@@ -239,45 +241,76 @@ export default function QuoteDetailView({
           </div>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="relative shrink-0">
           <button
             type="button"
-            onClick={() => setShowDelete(true)}
-            disabled={deleting}
-            className="inline-flex items-center gap-1.5 rounded-md border border-red-200 bg-white px-3 py-2 text-sm font-medium text-red-600 hover:bg-red-50 disabled:opacity-50"
+            onClick={() => setMenuOpen((open) => !open)}
+            disabled={deleting || converting || unconverting}
+            className="rounded-md border border-gray-300 bg-white p-2 text-gray-600 hover:bg-gray-50 disabled:opacity-50"
+            aria-label="Quote actions"
+            aria-expanded={menuOpen}
           >
-            <IconTrash size={16} />
-            Delete Quote
+            <IconDotsVertical size={18} />
           </button>
-          {!isConverted && (
-            <button
-              type="button"
-              onClick={() => setShowConvert(true)}
-              className="inline-flex items-center gap-1 rounded-md bg-burgundy px-4 py-2 text-sm font-medium text-white hover:bg-burgundy/90"
-            >
-              Convert To Job
-              <IconArrowRight size={16} />
-            </button>
-          )}
-          {isConverted && quote.converted_job_id && (
+          {menuOpen ? (
             <>
-              <button
-                type="button"
-                onClick={() => setShowUnconvert(true)}
-                disabled={unconverting}
-                className="inline-flex items-center gap-1 rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
-              >
-                Convert back to quote
-              </button>
-              <Link
-                href={`/jobs/${quote.converted_job_id}`}
-                className="inline-flex items-center gap-1 rounded-md bg-burgundy px-4 py-2 text-sm font-medium text-white hover:bg-burgundy/90"
-              >
-                View Job
-                <IconArrowRight size={16} />
-              </Link>
+              <div
+                className="fixed inset-0 z-10"
+                onClick={() => setMenuOpen(false)}
+              />
+              <div className="absolute right-0 top-full z-20 mt-1 w-52 rounded-lg border border-gray-200 bg-white py-1 shadow-lg">
+                {!isConverted ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setMenuOpen(false);
+                      setShowConvert(true);
+                    }}
+                    disabled={converting}
+                    className="flex w-full items-center gap-2.5 px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+                  >
+                    <IconArrowRight size={16} className="shrink-0 text-gray-500" />
+                    Convert To Job
+                  </button>
+                ) : null}
+                {isConverted && quote.converted_job_id ? (
+                  <>
+                    <Link
+                      href={`/jobs/${quote.converted_job_id}`}
+                      onClick={() => setMenuOpen(false)}
+                      className="flex w-full items-center gap-2.5 px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-50"
+                    >
+                      <IconArrowRight size={16} className="shrink-0 text-gray-500" />
+                      View Job
+                    </Link>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setMenuOpen(false);
+                        setShowUnconvert(true);
+                      }}
+                      disabled={unconverting}
+                      className="flex w-full items-center gap-2.5 px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+                    >
+                      Convert back to quote
+                    </button>
+                  </>
+                ) : null}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMenuOpen(false);
+                    setShowDelete(true);
+                  }}
+                  disabled={deleting}
+                  className="flex w-full items-center gap-2.5 px-3 py-2 text-left text-sm text-red-600 hover:bg-red-50 disabled:opacity-50"
+                >
+                  <IconTrash size={16} className="shrink-0" />
+                  {deleting ? "Deleting…" : "Delete"}
+                </button>
+              </div>
             </>
-          )}
+          ) : null}
         </div>
       </div>
 

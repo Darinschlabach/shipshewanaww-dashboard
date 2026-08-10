@@ -80,6 +80,7 @@ export default function ContactDetailPage() {
 
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -129,35 +130,47 @@ export default function ContactDetailPage() {
     e.preventDefault();
     if (!contact) return;
     setSavingContact(true);
-    const res = await fetch(`/api/contacts/${contact.id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        name: form.name.trim(),
-        email: form.email || null,
-        phone: form.phone || null,
-        fax: form.fax || null,
-        address: form.address || null,
-        birthday:
-          form.contact_type === "Employees" && form.birthday
-            ? form.birthday
-            : null,
-        contact_type: form.contact_type,
-      }),
-    });
-    const json = (await res.json().catch(() => ({}))) as {
-      data?: Contact;
-    };
-    if (json.data) {
+    setSaveError(null);
+    try {
+      const res = await fetch(`/api/contacts/${contact.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: form.name.trim(),
+          email: form.email || null,
+          phone: form.phone || null,
+          fax: form.fax || null,
+          address: form.address || null,
+          birthday:
+            form.contact_type === "Employees" && form.birthday
+              ? form.birthday
+              : null,
+          contact_type: form.contact_type,
+        }),
+      });
+      const json = (await res.json().catch(() => ({}))) as {
+        data?: Contact;
+        error?: string;
+      };
+      if (!res.ok || !json.data) {
+        setSaveError(json.error || "Could not save contact.");
+        return;
+      }
       setContact(json.data);
       syncFormFromContact(json.data);
+      setEditingContact(false);
+    } catch (err) {
+      setSaveError(
+        err instanceof Error ? err.message : "Could not save contact."
+      );
+    } finally {
+      setSavingContact(false);
     }
-    setSavingContact(false);
-    setEditingContact(false);
   }
 
   function cancelContactEdit() {
     if (contact) syncFormFromContact(contact);
+    setSaveError(null);
     setEditingContact(false);
   }
 
@@ -317,6 +330,11 @@ export default function ContactDetailPage() {
 
           {editingContact ? (
             <form onSubmit={handleSaveContact} className="space-y-4">
+              {saveError ? (
+                <p className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+                  {saveError}
+                </p>
+              ) : null}
               <div>
                 <label className="mb-1 block text-sm font-medium">
                   Contact Name
