@@ -352,7 +352,7 @@ export default function MicrosoftGraphDiscoveryClient() {
     setPath((prev) => prev.slice(0, index + 1));
   }
 
-  function useAsJobsFolder(folder: FolderSummary) {
+  function selectAsJobsFolder(folder: FolderSummary) {
     setJobsSelection({
       driveId: folder.driveId,
       folderId: folder.id,
@@ -938,7 +938,7 @@ export default function MicrosoftGraphDiscoveryClient() {
                               <Button
                                 type="button"
                                 variant={isSelected ? "primary" : "secondary"}
-                                onClick={() => useAsJobsFolder(folder)}
+                                onClick={() => selectAsJobsFolder(folder)}
                               >
                                 {isSelected
                                   ? "Selected as Jobs"
