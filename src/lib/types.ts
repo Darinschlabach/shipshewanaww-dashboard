@@ -127,6 +127,10 @@ export interface Job {
   graph_appliance_specs_item_id?: string | null;
   graph_purchase_orders_item_id?: string | null;
   graph_invoices_item_id?: string | null;
+  address?: string | null;
+  phone?: string | null;
+  email?: string | null;
+  fax?: string | null;
   created_at: string;
   updated_at: string;
   contacts?: Contact | null;

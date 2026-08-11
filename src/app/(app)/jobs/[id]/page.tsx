@@ -1,13 +1,16 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, type FormEvent } from "react";
 import Link from "next/link";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import {
   IconAlertCircle,
   IconArrowNarrowRight,
+  IconArchive,
   IconDotsVertical,
   IconBuildingFactory,
+  IconPencil,
+  IconRuler2,
   IconTrash,
 } from "@tabler/icons-react";
 import { createClient } from "@/lib/supabase/client";
@@ -18,6 +21,8 @@ import RoomsTab from "@/components/jobs/RoomsTab";
 import FilesTab from "@/components/jobs/FilesTab";
 import FinancialsTab from "@/components/jobs/FinancialsTab";
 import ScheduleTab from "@/components/jobs/ScheduleTab";
+import ContactSearchSelect from "@/components/ContactSearchSelect";
+import Modal from "@/components/Modal";
 import { getJobStageDisplay } from "@/lib/jobs";
 import {
   formatCurrencyFull,
@@ -55,6 +60,8 @@ export default function JobDetailPage() {
   const [deleting, setDeleting] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [sendingToProduction, setSendingToProduction] = useState(false);
+  const [movingToDrafting, setMovingToDrafting] = useState(false);
+  const [movingToArchive, setMovingToArchive] = useState(false);
   const [onProductionBoard, setOnProductionBoard] = useState(false);
   const [boardStatus, setBoardStatus] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -69,6 +76,22 @@ export default function JobDetailPage() {
   const [purchasingFullScreenMode, setPurchasingFullScreenMode] = useState(false);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [showEditInfo, setShowEditInfo] = useState(false);
+  const [showAddContact, setShowAddContact] = useState(false);
+  const [savingInfo, setSavingInfo] = useState(false);
+  const [savingContact, setSavingContact] = useState(false);
+  const [infoError, setInfoError] = useState<string | null>(null);
+  const [contactError, setContactError] = useState<string | null>(null);
+  const [allContacts, setAllContacts] = useState<Contact[]>([]);
+  const [infoForm, setInfoForm] = useState({
+    address: "",
+    phone: "",
+    email: "",
+    fax: "",
+  });
+  const [selectedContactId, setSelectedContactId] = useState<string | null>(
+    null
+  );
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -121,6 +144,120 @@ export default function JobDetailPage() {
 
   function handleNotesBlur() {
     if (job && notes !== job.notes) saveNotes(notes);
+  }
+
+  function openEditInfo() {
+    if (!job) return;
+    setInfoError(null);
+    setInfoForm({
+      address: job.address?.trim() || job.contacts?.address?.trim() || "",
+      phone: job.phone?.trim() || job.contacts?.phone?.trim() || "",
+      email: job.email?.trim() || job.contacts?.email?.trim() || "",
+      fax: job.fax?.trim() || job.contacts?.fax?.trim() || "",
+    });
+    setShowEditInfo(true);
+  }
+
+  async function handleSaveJobInfo(e: FormEvent) {
+    e.preventDefault();
+    if (!job) return;
+    setSavingInfo(true);
+    setInfoError(null);
+    const supabase = createClient();
+    const payload = {
+      address: infoForm.address.trim() || null,
+      phone: infoForm.phone.trim() || null,
+      email: infoForm.email.trim() || null,
+      fax: infoForm.fax.trim() || null,
+    };
+    const { error } = await supabase.from("jobs").update(payload).eq("id", id);
+    setSavingInfo(false);
+    if (error) {
+      setInfoError(
+        /address|phone|email|fax|column|schema cache/i.test(error.message)
+          ? `${error.message} Run supabase/migrations/20260811000001_jobs_info_fields.sql in the Supabase SQL Editor, then retry.`
+          : error.message
+      );
+      return;
+    }
+    setJob({ ...job, ...payload });
+    setShowEditInfo(false);
+  }
+
+  async function openAddContact() {
+    setContactError(null);
+    setSelectedContactId(job?.customer_id ?? null);
+    setShowAddContact(true);
+    const supabase = createClient();
+    const { data } = await supabase.from("contacts").select("*").order("name");
+    setAllContacts((data as Contact[]) ?? []);
+  }
+
+  async function handleSaveJobContact(e: FormEvent) {
+    e.preventDefault();
+    if (!job || !selectedContactId) {
+      setContactError("Select a contact.");
+      return;
+    }
+    setSavingContact(true);
+    setContactError(null);
+    const supabase = createClient();
+    const contact =
+      allContacts.find((c) => c.id === selectedContactId) ?? null;
+    const patch: Record<string, unknown> = {
+      customer_id: selectedContactId,
+    };
+    // Prefill empty job info from the contact when linking.
+    if (!job.address?.trim() && contact?.address?.trim()) {
+      patch.address = contact.address.trim();
+    }
+    if (!job.phone?.trim() && contact?.phone?.trim()) {
+      patch.phone = contact.phone.trim();
+    }
+    if (!job.email?.trim() && contact?.email?.trim()) {
+      patch.email = contact.email.trim();
+    }
+    if (!job.fax?.trim() && contact?.fax?.trim()) {
+      patch.fax = contact.fax.trim();
+    }
+
+    const { error } = await supabase.from("jobs").update(patch).eq("id", id);
+    if (error) {
+      setSavingContact(false);
+      setContactError(error.message);
+      return;
+    }
+
+    // Move SharePoint job folder under the contractor (or Jobs root if not).
+    try {
+      const res = await fetch(
+        `/api/jobs/${encodeURIComponent(id)}/sharepoint/relocate-for-contact`,
+        { method: "POST" }
+      );
+      const json = (await res.json()) as { ok?: boolean; error?: string };
+      if (!res.ok || json.ok === false) {
+        setSavingContact(false);
+        setContactError(
+          json.error ??
+            "Contact saved, but the SharePoint folder could not be moved."
+        );
+        await load();
+        return;
+      }
+    } catch (err) {
+      setSavingContact(false);
+      setContactError(
+        err instanceof Error
+          ? err.message
+          : "Contact saved, but the SharePoint folder could not be moved."
+      );
+      await load();
+      return;
+    }
+
+    setSavingContact(false);
+    setShowAddContact(false);
+    await load();
   }
 
   async function handleDeleteJob() {
@@ -208,6 +345,86 @@ export default function JobDetailPage() {
     await load();
   }
 
+  async function handleMoveToDrafting() {
+    if (!job || job.stage === "design") return;
+    setMenuOpen(false);
+    setMovingToDrafting(true);
+    setActionError(null);
+    const supabase = createClient();
+
+    const { error: stageError } = await supabase
+      .from("jobs")
+      .update({ stage: "design" })
+      .eq("id", id);
+
+    if (stageError) {
+      setMovingToDrafting(false);
+      setActionError(stageError.message);
+      return;
+    }
+
+    const { error: boardError } = await supabase
+      .from("production_jobs")
+      .delete()
+      .eq("job_id", id);
+
+    if (boardError) {
+      setMovingToDrafting(false);
+      setActionError(
+        `Job moved to Drafting, but it could not be removed from the production board: ${boardError.message}`
+      );
+      await load();
+      return;
+    }
+
+    setMovingToDrafting(false);
+    await load();
+  }
+
+  async function handleMoveToArchive() {
+    if (!job || job.stage === "complete") return;
+    setMenuOpen(false);
+    if (
+      !confirm(
+        `Move "${job.name}" to Archive? It will leave the active production board.`
+      )
+    ) {
+      return;
+    }
+
+    setMovingToArchive(true);
+    setActionError(null);
+    const supabase = createClient();
+
+    const { error: stageError } = await supabase
+      .from("jobs")
+      .update({ stage: "complete" })
+      .eq("id", id);
+
+    if (stageError) {
+      setMovingToArchive(false);
+      setActionError(stageError.message);
+      return;
+    }
+
+    const { error: boardError } = await supabase
+      .from("production_jobs")
+      .delete()
+      .eq("job_id", id);
+
+    if (boardError) {
+      setMovingToArchive(false);
+      setActionError(
+        `Job archived, but it could not be removed from the production board: ${boardError.message}`
+      );
+      await load();
+      return;
+    }
+
+    setMovingToArchive(false);
+    await load();
+  }
+
   if (loading) {
     return <p className="text-gray-500">Loading…</p>;
   }
@@ -235,9 +452,7 @@ export default function JobDetailPage() {
         ? job.stage
         : "design"
   );
-  const customerName = job.contacts
-    ? job.contacts.name
-    : "Unknown";
+  const customerName = job.contacts ? job.contacts.name : "Unknown";
 
   const designDone = !!job.design_approved_at;
   const completionPercent = Math.min(
@@ -246,8 +461,14 @@ export default function JobDetailPage() {
   );
 
   const contact = job.contacts;
+  const infoAddress = job.address?.trim() || contact?.address?.trim() || null;
+  const infoPhone = job.phone?.trim() || contact?.phone?.trim() || null;
+  const infoEmail = job.email?.trim() || contact?.email?.trim() || null;
+  const infoFax = job.fax?.trim() || contact?.fax?.trim() || null;
   const displayField = (value: string | null | undefined) => value?.trim() || "—";
   const alreadyInProduction = onProductionBoard;
+  const alreadyInDrafting = job.stage === "design";
+  const alreadyArchived = job.stage === "complete";
   const currentStageLabel = getJobStageDisplay(job, boardStatus);
 
   const isFillHeightTab =
@@ -304,7 +525,12 @@ export default function JobDetailPage() {
             <button
               type="button"
               onClick={() => setMenuOpen((open) => !open)}
-              disabled={deleting || sendingToProduction}
+              disabled={
+                deleting ||
+                sendingToProduction ||
+                movingToDrafting ||
+                movingToArchive
+              }
               className="rounded-md border border-gray-300 bg-white p-2 text-gray-600 hover:bg-gray-50 disabled:opacity-50"
               aria-label="Job actions"
               aria-expanded={menuOpen}
@@ -320,16 +546,48 @@ export default function JobDetailPage() {
                 <div className="absolute right-0 top-full z-20 mt-1 w-56 rounded-lg border border-gray-200 bg-white py-1 shadow-lg">
                   <button
                     type="button"
+                    onClick={() => void handleMoveToDrafting()}
+                    disabled={movingToDrafting || alreadyInDrafting}
+                    className="flex w-full items-center gap-2.5 px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    <IconRuler2 size={16} className="shrink-0 text-gray-500" />
+                    {alreadyInDrafting
+                      ? "Already in drafting"
+                      : movingToDrafting
+                        ? "Moving…"
+                        : "Move to Drafting"}
+                  </button>
+                  <button
+                    type="button"
                     onClick={() => void handleSendToProduction()}
-                    disabled={sendingToProduction || alreadyInProduction}
+                    disabled={
+                      sendingToProduction ||
+                      alreadyInProduction ||
+                      alreadyArchived
+                    }
                     className="flex w-full items-center gap-2.5 px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     <IconBuildingFactory size={16} className="shrink-0 text-gray-500" />
-                    {alreadyInProduction
-                      ? "Already in production"
-                      : sendingToProduction
-                        ? "Sending…"
-                        : "Move to Production"}
+                    {alreadyArchived
+                      ? "Archived"
+                      : alreadyInProduction
+                        ? "Already in production"
+                        : sendingToProduction
+                          ? "Sending…"
+                          : "Move to Production"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void handleMoveToArchive()}
+                    disabled={movingToArchive || alreadyArchived}
+                    className="flex w-full items-center gap-2.5 px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    <IconArchive size={16} className="shrink-0 text-gray-500" />
+                    {alreadyArchived
+                      ? "Already archived"
+                      : movingToArchive
+                        ? "Archiving…"
+                        : "Move to Archive"}
                   </button>
                   <button
                     type="button"
@@ -550,25 +808,36 @@ export default function JobDetailPage() {
         </div>
 
         <div className="rounded-lg border border-gray-200 bg-white p-4">
-          <h3 className="mb-3 text-xs font-semibold uppercase tracking-wide text-gray-500">
-            Job Info
-          </h3>
+          <div className="mb-3 flex items-center justify-between">
+            <h3 className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+              Job Info
+            </h3>
+            <button
+              type="button"
+              onClick={openEditInfo}
+              className="rounded p-1 text-gray-400 hover:bg-gray-100 hover:text-burgundy"
+              aria-label="Edit job info"
+              title="Edit job info"
+            >
+              <IconPencil size={16} />
+            </button>
+          </div>
           <dl className="space-y-3 text-sm">
             <div>
               <dt className="text-xs text-gray-500">Address</dt>
-              <dd className="mt-0.5 text-gray-900">{displayField(contact?.address)}</dd>
+              <dd className="mt-0.5 text-gray-900">{displayField(infoAddress)}</dd>
             </div>
             <div>
               <dt className="text-xs text-gray-500">Phone</dt>
-              <dd className="mt-0.5 text-gray-900">{displayField(contact?.phone)}</dd>
+              <dd className="mt-0.5 text-gray-900">{displayField(infoPhone)}</dd>
             </div>
             <div>
               <dt className="text-xs text-gray-500">Email</dt>
-              <dd className="mt-0.5 text-gray-900">{displayField(contact?.email)}</dd>
+              <dd className="mt-0.5 text-gray-900">{displayField(infoEmail)}</dd>
             </div>
             <div>
               <dt className="text-xs text-gray-500">Fax</dt>
-              <dd className="mt-0.5 text-gray-900">{displayField(contact?.fax)}</dd>
+              <dd className="mt-0.5 text-gray-900">{displayField(infoFax)}</dd>
             </div>
           </dl>
         </div>
@@ -576,31 +845,143 @@ export default function JobDetailPage() {
         <div className="rounded-lg border border-gray-200 bg-white p-4">
           <div className="mb-3 flex items-center justify-between">
             <h3 className="text-xs font-semibold uppercase tracking-wide text-gray-500">
-              Job Contacts
+              Job Contact
             </h3>
-            <button className="text-sm text-burgundy hover:underline">+ Add Contact</button>
+            <button
+              type="button"
+              onClick={() => void openAddContact()}
+              className="text-sm text-burgundy hover:underline"
+            >
+              {contact ? "+ Change Contact" : "+ Add Contact"}
+            </button>
           </div>
-          <div className="space-y-3 text-sm">
-            <div>
-              <div className="font-medium text-gray-900">{customerName}</div>
-              <div className="text-xs text-gray-500">Client</div>
+          {contact ? (
+            <div className="text-sm">
+              <div className="font-medium text-gray-900">{contact.name}</div>
+              {(contact.phone || contact.email) && (
+                <div className="mt-0.5 text-xs text-gray-500">
+                  {[contact.phone, contact.email].filter(Boolean).join(" · ")}
+                </div>
+              )}
+              {contact.contact_type ? (
+                <div className="mt-1 text-xs text-gray-500">
+                  {contact.contact_type.replace(/s$/, "")}
+                </div>
+              ) : null}
             </div>
-            <div>
-              <div className="font-medium text-gray-900">Brent Hess</div>
-              <div className="text-xs text-gray-500">Homeowner</div>
-            </div>
-            <div>
-              <div className="font-medium text-gray-900">Builder Co.</div>
-              <div className="text-xs text-gray-500">Builder</div>
-            </div>
-            <div>
-              <div className="font-medium text-gray-900">Jordan Detweiler</div>
-              <div className="text-xs text-gray-500">Designer</div>
-            </div>
-          </div>
+          ) : (
+            <p className="text-sm text-gray-500">No contact yet.</p>
+          )}
         </div>
       </div>
         </>
+      ) : null}
+
+      {showEditInfo ? (
+        <Modal title="Edit job info" onClose={() => setShowEditInfo(false)}>
+          <form onSubmit={handleSaveJobInfo} className="space-y-4">
+            <div>
+              <label className="mb-1 block text-sm font-medium">Address</label>
+              <input
+                value={infoForm.address}
+                onChange={(e) =>
+                  setInfoForm((prev) => ({ ...prev, address: e.target.value }))
+                }
+                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-sm font-medium">Phone</label>
+              <input
+                value={infoForm.phone}
+                onChange={(e) =>
+                  setInfoForm((prev) => ({ ...prev, phone: e.target.value }))
+                }
+                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-sm font-medium">Email</label>
+              <input
+                type="email"
+                value={infoForm.email}
+                onChange={(e) =>
+                  setInfoForm((prev) => ({ ...prev, email: e.target.value }))
+                }
+                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-sm font-medium">Fax</label>
+              <input
+                value={infoForm.fax}
+                onChange={(e) =>
+                  setInfoForm((prev) => ({ ...prev, fax: e.target.value }))
+                }
+                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
+              />
+            </div>
+            {infoError ? (
+              <p className="text-sm text-red-600">{infoError}</p>
+            ) : null}
+            <div className="flex justify-end gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setShowEditInfo(false)}
+                disabled={savingInfo}
+                className="rounded-md border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={savingInfo}
+                className="rounded-md bg-burgundy px-4 py-2 text-sm font-medium text-white hover:bg-burgundy/90 disabled:opacity-50"
+              >
+                {savingInfo ? "Saving…" : "Save"}
+              </button>
+            </div>
+          </form>
+        </Modal>
+      ) : null}
+
+      {showAddContact ? (
+        <Modal
+          title={contact ? "Change job contact" : "Add job contact"}
+          onClose={() => setShowAddContact(false)}
+        >
+          <form onSubmit={handleSaveJobContact} className="space-y-4">
+            <div>
+              <label className="mb-1 block text-sm font-medium">Contact</label>
+              <ContactSearchSelect
+                contacts={allContacts}
+                value={selectedContactId}
+                required
+                onChange={(contactId) => setSelectedContactId(contactId)}
+              />
+            </div>
+            {contactError ? (
+              <p className="text-sm text-red-600">{contactError}</p>
+            ) : null}
+            <div className="flex justify-end gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setShowAddContact(false)}
+                disabled={savingContact}
+                className="rounded-md border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={savingContact || !selectedContactId}
+                className="rounded-md bg-burgundy px-4 py-2 text-sm font-medium text-white hover:bg-burgundy/90 disabled:opacity-50"
+              >
+                {savingContact ? "Saving…" : "Save"}
+              </button>
+            </div>
+          </form>
+        </Modal>
       ) : null}
     </div>
   );

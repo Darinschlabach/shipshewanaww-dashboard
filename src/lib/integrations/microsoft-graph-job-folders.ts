@@ -548,6 +548,68 @@ export async function ensureJobSharePointFolders(
 }
 
 /**
+ * Moves an existing job project folder under the correct Jobs parent for its
+ * current customer_id (contractor folder vs Jobs root). Idempotent.
+ */
+export async function relocateJobSharePointFolderForContact(
+  jobId: string
+): Promise<JobGraphFolderIds> {
+  const job = await loadJob(jobId);
+  const ids = await ensureJobSharePointFolders(jobId);
+  const parent = await resolveJobsParentFolderId(job.customer_id);
+  const driveId = parent.driveId || ids.graph_drive_id;
+  const targetParentId = parent.parentFolderId;
+
+  const current = await getDriveItem(driveId, ids.graph_folder_item_id);
+  const currentParent = current.parentReference?.id ?? null;
+  if (currentParent === targetParentId) {
+    return ids;
+  }
+
+  const jobName = sanitizeSharePointFolderName(job.name);
+  let moved: GraphDriveItem;
+  try {
+    moved = await moveSharePointDriveItem({
+      driveId,
+      itemId: ids.graph_folder_item_id,
+      newParentItemId: targetParentId,
+      newName: jobName,
+    });
+  } catch (err) {
+    if (
+      err instanceof MicrosoftGraphAuthError &&
+      (err.status === 409 ||
+        /nameAlreadyExists|already exists/i.test(err.message))
+    ) {
+      moved = await moveSharePointDriveItem({
+        driveId,
+        itemId: ids.graph_folder_item_id,
+        newParentItemId: targetParentId,
+      });
+    } else {
+      throw err;
+    }
+  }
+
+  const verified = await getDriveItem(driveId, moved.id!);
+  if (verified.parentReference?.id !== targetParentId) {
+    throw new Error(
+      "SharePoint folder move failed: job folder is not under the expected parent."
+    );
+  }
+
+  const next: JobGraphFolderIds = {
+    ...ids,
+    graph_drive_id:
+      verified.parentReference?.driveId ?? ids.graph_drive_id ?? driveId,
+    graph_folder_item_id: moved.id!,
+    graph_web_url: verified.webUrl ?? moved.webUrl ?? ids.graph_web_url,
+  };
+  await saveJobGraphIds(jobId, next);
+  return next;
+}
+
+/**
  * Moves the quote's SharePoint project folder into Jobs (or the contractor's Jobs
  * folder) using the same DriveItem ID, ensures job-only subfolders, and stores IDs.
  * Idempotent and does not duplicate files.
