@@ -366,11 +366,6 @@ export default function LeadsPage() {
       .update({ status: "converted", converted_job_id: job.id, job_id: job.id })
       .eq("id", convertLead.id);
 
-    await supabase.from("production_jobs").insert({
-      job_id: job.id,
-      kanban_status: "cutting",
-    });
-
     setConvertLead(null);
     router.push(`/jobs/${job.id}`);
     setConverting(false);

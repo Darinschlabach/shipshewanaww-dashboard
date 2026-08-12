@@ -346,7 +346,9 @@ export default function JobDetailPage() {
   }
 
   async function handleMoveToDrafting() {
-    if (!job || job.stage === "design") return;
+    if (!job) return;
+    // Allow healing jobs that are marked Drafting but still on the production board.
+    if (job.stage === "design" && !onProductionBoard) return;
     setMenuOpen(false);
     setMovingToDrafting(true);
     setActionError(null);
@@ -466,8 +468,11 @@ export default function JobDetailPage() {
   const infoEmail = job.email?.trim() || contact?.email?.trim() || null;
   const infoFax = job.fax?.trim() || contact?.fax?.trim() || null;
   const displayField = (value: string | null | undefined) => value?.trim() || "—";
-  const alreadyInProduction = onProductionBoard;
-  const alreadyInDrafting = job.stage === "design";
+  const alreadyInProduction =
+    onProductionBoard ||
+    job.stage === "production" ||
+    job.stage === "delivery";
+  const alreadyInDrafting = job.stage === "design" && !onProductionBoard;
   const alreadyArchived = job.stage === "complete";
   const currentStageLabel = getJobStageDisplay(job, boardStatus);
 

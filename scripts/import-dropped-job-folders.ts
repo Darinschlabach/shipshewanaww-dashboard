@@ -577,12 +577,6 @@ async function main() {
       }
       jobId = job.id;
 
-      await admin.from("production_jobs").insert({
-        job_id: jobId,
-        kanban_status: "cutting",
-        due_date: null,
-      });
-
       const ids = await ensureJobSharePointFolders(jobId);
       const moved = await reshapeProjectFolder(candidate.folderId, ids);
       console.log(`  created job ${jobId}; moved ${moved} file(s)`);

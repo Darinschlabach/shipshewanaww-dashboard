@@ -42,7 +42,7 @@ import {
 
 const FILTERS = [
   { value: "all", label: "All" },
-  ...JOB_ACTIVE_STAGES.map((stage) => ({
+  ...JOB_ACTIVE_STAGES.filter((stage) => stage !== "complete").map((stage) => ({
     value: stage,
     label: JOB_STAGE_LABELS[stage],
   })),
@@ -75,6 +75,7 @@ export default function JobsPage() {
   const [pageSize, setPageSize] = useState(10);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
+  const [showArchiveModal, setShowArchiveModal] = useState(false);
   const [deleteJob, setDeleteJob] = useState<JobRow | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [showColumns, setShowColumns] = useState(false);
@@ -131,21 +132,38 @@ export default function JobsPage() {
   }, [load]);
 
   const stats = useMemo(() => {
-    const totalValue = jobs.reduce((sum, job) => sum + Number(job.total_value), 0);
+    const activeJobs = jobs.filter((j) => j.stage !== "complete");
+    const archivedJobs = jobs.filter((j) => j.stage === "complete");
+    const totalValue = activeJobs.reduce(
+      (sum, job) => sum + Number(job.total_value),
+      0
+    );
     return {
-      total: jobs.length,
-      inProgress: jobs.filter(isJobInProgress).length,
-      awaitingApproval: jobs.filter(isJobAwaitingApproval).length,
-      completed: jobs.filter((j) => j.stage === "complete").length,
+      total: activeJobs.length,
+      inProgress: activeJobs.filter(isJobInProgress).length,
+      awaitingApproval: activeJobs.filter(isJobAwaitingApproval).length,
+      archived: archivedJobs.length,
       totalValue,
     };
   }, [jobs]);
+
+  const archivedJobs = useMemo(
+    () =>
+      jobs
+        .filter((j) => j.stage === "complete")
+        .sort(
+          (a, b) =>
+            new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime()
+        ),
+    [jobs]
+  );
 
   const filtered = useMemo(() => {
     const q = search.toLowerCase().trim();
     const activeStage = stageFilter || (filter === "all" ? "" : filter);
 
     return jobs.filter((job) => {
+      if (job.stage === "complete") return false;
       if (activeStage) {
         const matchesStage =
           job.stage === activeStage ||
@@ -193,11 +211,13 @@ export default function JobsPage() {
       .single();
 
     if (job) {
-      await supabase.from("production_jobs").insert({
-        job_id: job.id,
-        kanban_status: "cutting",
-        due_date: form.due_date || null,
-      });
+      if (form.stage === "production") {
+        await supabase.from("production_jobs").insert({
+          job_id: job.id,
+          kanban_status: "queued",
+          due_date: form.due_date || null,
+        });
+      }
       void fetch(
         `/api/jobs/${encodeURIComponent(job.id)}/sharepoint/ensure-folder`,
         { method: "POST" }
@@ -236,11 +256,24 @@ export default function JobsPage() {
     setVisibleColumns((prev) => ({ ...prev, [key]: !prev[key] }));
   }
 
-  const statItems = [
+  const statItems: {
+    icon: typeof IconBriefcase;
+    value: string | number;
+    label: string;
+    action?: { label: string; onClick: () => void };
+  }[] = [
     { icon: IconBriefcase, value: stats.total, label: "Total jobs" },
     { icon: IconUsers, value: stats.inProgress, label: "In progress" },
     { icon: IconUser, value: stats.awaitingApproval, label: "Awaiting approval" },
-    { icon: IconRefresh, value: stats.completed, label: "Archived" },
+    {
+      icon: IconRefresh,
+      value: stats.archived,
+      label: "Archived",
+      action: {
+        label: "Open Archive",
+        onClick: () => setShowArchiveModal(true),
+      },
+    },
     {
       icon: IconFolder,
       value: formatCurrencyFull(stats.totalValue),
@@ -268,7 +301,7 @@ export default function JobsPage() {
       </div>
 
       <div className="mb-4 flex flex-wrap overflow-hidden rounded-lg border border-gray-200 bg-cream">
-        {statItems.map(({ icon: Icon, value, label }, idx) => (
+        {statItems.map(({ icon: Icon, value, label, action }, idx) => (
           <div
             key={label}
             className={`flex min-w-[150px] flex-1 items-center gap-3 px-5 py-4 ${
@@ -276,10 +309,20 @@ export default function JobsPage() {
             }`}
           >
             <Icon size={20} className="shrink-0 text-gray-400" stroke={1.5} />
-            <div>
+            <div className="flex min-h-[3.25rem] flex-1 flex-col">
               <p className="text-lg font-semibold text-gray-900">{value}</p>
               <p className="text-xs text-gray-500">{label}</p>
-              <p className="text-xs font-medium text-transparent">.</p>
+              {action ? (
+                <button
+                  type="button"
+                  onClick={action.onClick}
+                  className="mt-auto self-end text-xs font-medium text-burgundy underline hover:text-burgundy/80"
+                >
+                  {action.label}
+                </button>
+              ) : (
+                <p className="text-xs font-medium text-transparent">.</p>
+              )}
             </div>
           </div>
         ))}
@@ -657,6 +700,77 @@ export default function JobsPage() {
           onConfirm={handleDeleteJob}
           onCancel={() => setDeleteJob(null)}
         />
+      )}
+
+      {showArchiveModal && (
+        <Modal
+          title="Archive"
+          onClose={() => setShowArchiveModal(false)}
+          className="max-h-[85vh] w-full max-w-4xl"
+        >
+          {archivedJobs.length === 0 ? (
+            <p className="text-sm text-gray-500">No archived jobs yet.</p>
+          ) : (
+            <div className="flex min-h-0 flex-1 flex-col gap-3">
+              <p className="text-sm text-gray-600">
+                {archivedJobs.length} archived job
+                {archivedJobs.length !== 1 ? "s" : ""}
+              </p>
+              <div className="min-h-0 flex-1 overflow-auto rounded-lg border border-gray-200">
+                <table className="w-full text-left text-sm">
+                  <thead className="sticky top-0 bg-gray-50">
+                    <tr className="border-b border-gray-200">
+                      <th className="px-4 py-3 text-xs font-medium uppercase tracking-wide text-gray-500">
+                        Job
+                      </th>
+                      <th className="px-4 py-3 text-xs font-medium uppercase tracking-wide text-gray-500">
+                        Customer
+                      </th>
+                      <th className="px-4 py-3 text-xs font-medium uppercase tracking-wide text-gray-500">
+                        Value
+                      </th>
+                      <th className="px-4 py-3 text-xs font-medium uppercase tracking-wide text-gray-500">
+                        Archived
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {archivedJobs.map((job) => (
+                      <tr
+                        key={job.id}
+                        onClick={() => {
+                          setShowArchiveModal(false);
+                          router.push(`/jobs/${job.id}`);
+                        }}
+                        className="cursor-pointer border-b border-gray-100 transition-colors hover:bg-gray-50"
+                      >
+                        <td className="px-4 py-3">
+                          <div className="flex items-center gap-2 font-medium text-gray-900">
+                            <IconFolder
+                              size={18}
+                              className="shrink-0 text-burgundy"
+                              stroke={1.5}
+                            />
+                            {job.name}
+                          </div>
+                        </td>
+                        <td className="px-4 py-3 text-gray-600">
+                          {job.contacts ? job.contacts.name : "—"}
+                        </td>
+                        <td className="px-4 py-3 text-gray-900">
+                          {formatCurrencyFull(Number(job.total_value))}
+                        </td>
+                        <td className="px-4 py-3 text-gray-600">
+                          {formatRelativeTime(job.updated_at)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+        </Modal>
       )}
     </>
   );

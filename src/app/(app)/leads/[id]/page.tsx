@@ -115,11 +115,6 @@ export default function QuoteDetailPage() {
       .update({ status: "converted", converted_job_id: job.id, job_id: job.id })
       .eq("id", quote.id);
 
-    await supabase.from("production_jobs").insert({
-      job_id: job.id,
-      kanban_status: "cutting",
-    });
-
     router.push(`/jobs/${job.id}`);
     setConverting(false);
   }
