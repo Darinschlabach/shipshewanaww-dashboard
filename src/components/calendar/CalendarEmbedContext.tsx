@@ -14,6 +14,7 @@ export type { PhaseDates };
 interface CalendarEmbedContextValue {
   embedded: boolean;
   scheduleMode: boolean;
+  scheduleJobId: string | null;
   jobName: string;
   phaseDates: PhaseDates;
   setPhaseDate: (phase: SchedulePhaseKey, isoDate: string) => void;
@@ -33,6 +34,7 @@ const defaultPhaseDates: PhaseDates = {
 const defaultContextValue: CalendarEmbedContextValue = {
   embedded: false,
   scheduleMode: false,
+  scheduleJobId: null,
   jobName: "",
   phaseDates: defaultPhaseDates,
   setPhaseDate: () => {},
@@ -57,6 +59,7 @@ export function useProductionSchedule() {
 export function CalendarEmbedProvider({
   embedded,
   scheduleMode = false,
+  scheduleJobId = null,
   jobName = "",
   initialPhaseDates = defaultPhaseDates,
   initialColor = "red",
@@ -64,6 +67,7 @@ export function CalendarEmbedProvider({
 }: {
   embedded: boolean;
   scheduleMode?: boolean;
+  scheduleJobId?: string | null;
   jobName?: string;
   initialPhaseDates?: PhaseDates;
   initialColor?: ScheduleColor;
@@ -87,6 +91,7 @@ export function CalendarEmbedProvider({
     () => ({
       embedded,
       scheduleMode,
+      scheduleJobId,
       jobName,
       phaseDates,
       setPhaseDate,
@@ -99,6 +104,7 @@ export function CalendarEmbedProvider({
     [
       embedded,
       scheduleMode,
+      scheduleJobId,
       jobName,
       phaseDates,
       setPhaseDate,

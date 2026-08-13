@@ -1,5 +1,8 @@
 import { jsonError, jsonOk, requireApiUser } from "@/lib/api-auth";
-import { computeInvoiceStatus } from "@/lib/invoices";
+import {
+  computeInvoiceStatus,
+  isMissingInvoicePaymentReferenceColumn,
+} from "@/lib/invoices";
 import {
   deletePaymentInQuickBooks,
   syncPaymentToQuickBooks,
@@ -71,12 +74,22 @@ export async function PATCH(
     patch.reference = body.reference?.trim() || null;
   }
 
-  const { data: payment, error } = await auth.supabase
+  let { data: payment, error } = await auth.supabase
     .from("invoice_payments")
     .update(patch)
     .eq("id", paymentId)
     .select("*")
     .single();
+
+  if (error && isMissingInvoicePaymentReferenceColumn(error.message)) {
+    const { reference: _reference, ...withoutReference } = patch;
+    ({ data: payment, error } = await auth.supabase
+      .from("invoice_payments")
+      .update(withoutReference)
+      .eq("id", paymentId)
+      .select("*")
+      .single());
+  }
 
   if (error || !payment) {
     return jsonError(error?.message || "Could not update payment.", 500);

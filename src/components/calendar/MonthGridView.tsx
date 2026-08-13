@@ -29,6 +29,82 @@ function splitDayNumberClass(inMonth: boolean, isToday: boolean) {
   return inMonth ? "text-gray-900" : "text-gray-300";
 }
 
+type SavedScheduleItem = {
+  id: string;
+  jobId: string | null;
+  bubble: ScheduleBubble;
+  color: ScheduleColor;
+};
+
+function scheduleJobLaneKey(jobId: string | null, jobName: string) {
+  return jobId ?? `name:${jobName}`;
+}
+
+function sortScheduleItemsByLane(
+  items: SavedScheduleItem[],
+  laneKeys: string[]
+): SavedScheduleItem[] {
+  const laneIndex = new Map(laneKeys.map((key, index) => [key, index]));
+  return [...items].sort((a, b) => {
+    const indexA =
+      laneIndex.get(scheduleJobLaneKey(a.jobId, a.bubble.jobName)) ?? 999;
+    const indexB =
+      laneIndex.get(scheduleJobLaneKey(b.jobId, b.bubble.jobName)) ?? 999;
+    return indexA - indexB;
+  });
+}
+
+function extractSavedScheduleEvents(
+  events: EnrichedCalendarEvent[]
+): SavedScheduleItem[] {
+  return events
+    .map((event) => {
+      const meta = parseScheduleBubbleDescription(event.description);
+      if (!meta) return null;
+      return {
+        id: event.id,
+        jobId: event.job_id,
+        bubble: scheduleBubbleFromMeta(event.title, meta),
+        color: meta.color,
+      };
+    })
+    .filter(Boolean) as SavedScheduleItem[];
+}
+
+function countDayItems(
+  dateKey: string,
+  eventsByDay: Map<string, EnrichedCalendarEvent[]>,
+  birthdayByDate?: Map<string, { firstName: string; age: number }[]>
+): number {
+  const events = eventsByDay.get(dateKey) ?? [];
+  const birthdays = birthdayByDate?.get(dateKey)?.length ?? 0;
+  return events.length + birthdays;
+}
+
+const MAX_SCHEDULE_BUBBLES_PER_DAY = 2;
+
+type ScheduleRowItem =
+  | { kind: "saved"; item: SavedScheduleItem }
+  | { kind: "preview"; bubble: ScheduleBubble; color: ScheduleColor };
+
+function buildScheduleRowItems(
+  saved: SavedScheduleItem[],
+  preview?: ScheduleBubble,
+  previewColor?: ScheduleColor
+): { visible: ScheduleRowItem[]; extraCount: number } {
+  const all: ScheduleRowItem[] = [];
+  if (preview && previewColor) {
+    all.push({ kind: "preview", bubble: preview, color: previewColor });
+  }
+  for (const item of saved) {
+    all.push({ kind: "saved", item });
+  }
+  return {
+    visible: all.slice(0, MAX_SCHEDULE_BUBBLES_PER_DAY),
+    extraCount: Math.max(0, all.length - MAX_SCHEDULE_BUBBLES_PER_DAY),
+  };
+}
+
 function MonthEventChip({
   event,
   selected,
@@ -116,6 +192,7 @@ export default function MonthGridView({
 }) {
   const {
     scheduleMode,
+    scheduleJobId,
     jobName,
     phaseDates,
     setPhaseDate,
@@ -132,9 +209,42 @@ export default function MonthGridView({
     [scheduleMode, jobName, phaseDates]
   );
 
-  const monthGrid = buildMonthGrid(monthDate);
+  const monthGrid = useMemo(() => buildMonthGrid(monthDate), [monthDate]);
   const displayMonth = monthDate.getMonth();
   const displayYear = monthDate.getFullYear();
+
+  const scheduleJobLaneKeys = useMemo(() => {
+    const jobs = new Map<string, { earliestDate: string; jobName: string }>();
+
+    for (const cell of monthGrid) {
+      const dateStr = formatDateKey(cell.date);
+      const overflowStr = cell.overflowDate
+        ? formatDateKey(cell.overflowDate)
+        : null;
+      const dayEvents = [
+        ...(eventsByDay.get(dateStr) ?? []),
+        ...(overflowStr ? (eventsByDay.get(overflowStr) ?? []) : []),
+      ];
+
+      for (const event of dayEvents) {
+        const meta = parseScheduleBubbleDescription(event.description);
+        if (!meta) continue;
+        const key = scheduleJobLaneKey(event.job_id, event.title);
+        const existing = jobs.get(key);
+        if (!existing || dateStr < existing.earliestDate) {
+          jobs.set(key, { earliestDate: dateStr, jobName: event.title });
+        }
+      }
+    }
+
+    return Array.from(jobs.entries())
+      .sort(([, a], [, b]) => {
+        const byDate = a.earliestDate.localeCompare(b.earliestDate);
+        if (byDate !== 0) return byDate;
+        return a.jobName.localeCompare(b.jobName);
+      })
+      .map(([key]) => key);
+  }, [monthGrid, eventsByDay]);
 
   function assignPhaseToDate(date: Date) {
     if (!scheduleMode || !activePhase) return false;
@@ -167,26 +277,22 @@ export default function MonthGridView({
             isShopClosedEvent(event)
           ) ?? null;
         const shopClosedReason = shopClosedEvent?.description?.trim() || null;
-        const savedScheduleEvts = [
+        const savedScheduleEvts = extractSavedScheduleEvents([
           ...(eventsByDay.get(dateStr) ?? []),
           ...(overflowStr ? (eventsByDay.get(overflowStr) ?? []) : []),
-        ]
-          .map((event) => {
-            const meta = parseScheduleBubbleDescription(event.description);
-            if (!meta) return null;
-            return {
-              id: event.id,
-              jobId: event.job_id,
-              bubble: scheduleBubbleFromMeta(event.title, meta),
-              color: meta.color,
-            };
-          })
-          .filter(Boolean) as {
-          id: string;
-          jobId: string | null;
-          bubble: ScheduleBubble;
-          color: ScheduleColor;
-        }[];
+        ]);
+        const sortedScheduleEvts = sortScheduleItemsByLane(
+          savedScheduleEvts,
+          scheduleJobLaneKeys
+        );
+        const existingScheduleEvts = scheduleMode
+          ? sortedScheduleEvts.filter(
+              (item) =>
+                scheduleJobId
+                  ? item.jobId !== scheduleJobId
+                  : item.bubble.jobName !== jobName
+            )
+          : sortedScheduleEvts;
         const scheduleBubble = scheduleBubbles.get(dateStr);
         const overflowScheduleBubble = overflowStr
           ? scheduleBubbles.get(overflowStr)
@@ -206,6 +312,20 @@ export default function MonthGridView({
           overflowDate !== undefined &&
           overflowDate.getMonth() === displayMonth &&
           overflowDate.getFullYear() === displayYear;
+        const primaryItemCount = countDayItems(
+          dateStr,
+          eventsByDay,
+          birthdayByDate
+        );
+        const overflowItemCount = overflowStr
+          ? countDayItems(overflowStr, eventsByDay, birthdayByDate)
+          : 0;
+        const { visible: visibleScheduleRows, extraCount: extraScheduleCount } =
+          buildScheduleRowItems(
+            scheduleMode ? existingScheduleEvts : sortedScheduleEvts,
+            scheduleMode && scheduleBubble ? scheduleBubble : undefined,
+            scheduleMode && scheduleBubble ? selectedColor : undefined
+          );
 
         return (
           <div
@@ -320,6 +440,35 @@ export default function MonthGridView({
                 overflowDate ? "pointer-events-none pt-8 pr-8" : "pt-0.5"
               }`}
             >
+              {overflowDate ? (
+                <>
+                  {primaryItemCount > 0 ? (
+                    <button
+                      type="button"
+                      className="pointer-events-auto absolute left-1.5 top-8 z-10 text-[10px] font-medium text-gray-500 hover:text-gray-700"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleDayClick(day);
+                      }}
+                    >
+                      +{primaryItemCount}
+                    </button>
+                  ) : null}
+                  {overflowItemCount > 0 ? (
+                    <button
+                      type="button"
+                      className="pointer-events-auto absolute bottom-8 right-1.5 z-10 text-[10px] font-medium text-gray-500 hover:text-gray-700"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleDayClick(overflowDate);
+                      }}
+                    >
+                      +{overflowItemCount}
+                    </button>
+                  ) : null}
+                </>
+              ) : (
+                <>
               {dayBirthdays.map((item, idx) => (
                 <div
                   key={`${dateStr}-bday-${idx}`}
@@ -344,41 +493,59 @@ export default function MonthGridView({
                   <IconConfetti size={10} />
                 </div>
               ))}
-              {scheduleMode && scheduleBubble ? (
-                <ScheduleBubbleChip bubble={scheduleBubble} color={selectedColor} />
-              ) : null}
               {scheduleMode && overflowScheduleBubble ? (
                 <ScheduleBubbleChip
                   bubble={overflowScheduleBubble}
                   color={selectedColor}
                 />
               ) : null}
-              {!scheduleMode
-                ? savedScheduleEvts.map((item) => (
-                    <div
-                      key={item.id}
-                      onContextMenu={(e) => {
-                        if (!onScheduleContextMenu || !item.jobId) return;
-                        e.preventDefault();
-                        e.stopPropagation();
-                        onScheduleContextMenu({
-                          jobId: item.jobId,
-                          jobName: item.bubble.jobName,
-                          clientName:
-                            dayEvts.find((event) => event.id === item.id)
-                              ?.clientName ?? "—",
-                          x: e.clientX,
-                          y: e.clientY,
-                        });
-                      }}
-                    >
-                      <ScheduleBubbleChip
-                        bubble={item.bubble}
-                        color={item.color}
-                      />
-                    </div>
-                  ))
-                : null}
+              {visibleScheduleRows.map((row) =>
+                row.kind === "preview" ? (
+                  <ScheduleBubbleChip
+                    key="schedule-preview"
+                    bubble={row.bubble}
+                    color={row.color}
+                  />
+                ) : (
+                  <div
+                    key={row.item.id}
+                    onContextMenu={
+                      !scheduleMode && onScheduleContextMenu && row.item.jobId
+                        ? (e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            onScheduleContextMenu({
+                              jobId: row.item.jobId,
+                              jobName: row.item.bubble.jobName,
+                              clientName:
+                                dayEvts.find((event) => event.id === row.item.id)
+                                  ?.clientName ?? "—",
+                              x: e.clientX,
+                              y: e.clientY,
+                            });
+                          }
+                        : undefined
+                    }
+                  >
+                    <ScheduleBubbleChip
+                      bubble={row.item.bubble}
+                      color={row.item.color}
+                    />
+                  </div>
+                )
+              )}
+              {extraScheduleCount > 0 ? (
+                <button
+                  type="button"
+                  className="block w-full px-1 text-left text-[10px] font-medium text-gray-500 hover:text-gray-700"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleDayClick(day);
+                  }}
+                >
+                  +{extraScheduleCount}
+                </button>
+              ) : null}
               {visibleEvts.map((ev) => (
                 <MonthEventChip
                   key={ev.id}
@@ -393,9 +560,7 @@ export default function MonthGridView({
               {extra > 0 ? (
                 <button
                   type="button"
-                  className={`block w-full px-1 text-left text-[10px] font-medium text-gray-500 hover:text-gray-700 ${
-                    overflowDate ? "pointer-events-auto" : ""
-                  }`}
+                  className="block w-full px-1 text-left text-[10px] font-medium text-gray-500 hover:text-gray-700"
                   onClick={(e) => {
                     e.stopPropagation();
                     handleDayClick(day);
@@ -404,6 +569,8 @@ export default function MonthGridView({
                   +{extra} more
                 </button>
               ) : null}
+                </>
+              )}
             </div>
             {shopClosedReason && !overflowDate ? (
               <div className="relative z-20 mt-auto border-t border-gray-100 px-1 py-1">

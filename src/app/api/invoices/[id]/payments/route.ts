@@ -1,5 +1,8 @@
 import { jsonError, jsonOk, requireApiUser } from "@/lib/api-auth";
-import { computeInvoiceStatus } from "@/lib/invoices";
+import {
+  computeInvoiceStatus,
+  isMissingInvoicePaymentReferenceColumn,
+} from "@/lib/invoices";
 import { syncPaymentToQuickBooks } from "@/lib/integrations/quickbooks-sync";
 
 type PaymentBody = {
@@ -41,19 +44,30 @@ export async function POST(
       ).toISOString()
     : new Date().toISOString();
 
-  const { data: payment, error } = await auth.supabase
+  const insertPayload = {
+    invoice_id: invoiceId,
+    amount,
+    paid_at: paidAt,
+    method: body?.method || null,
+    reference: body?.reference?.trim() || null,
+    qb_sync_status: "pending",
+    qb_sync_error: null,
+  };
+
+  let { data: payment, error } = await auth.supabase
     .from("invoice_payments")
-    .insert({
-      invoice_id: invoiceId,
-      amount,
-      paid_at: paidAt,
-      method: body?.method || null,
-      reference: body?.reference?.trim() || null,
-      qb_sync_status: "pending",
-      qb_sync_error: null,
-    })
+    .insert(insertPayload)
     .select("*")
     .single();
+
+  if (error && isMissingInvoicePaymentReferenceColumn(error.message)) {
+    const { reference: _reference, ...withoutReference } = insertPayload;
+    ({ data: payment, error } = await auth.supabase
+      .from("invoice_payments")
+      .insert(withoutReference)
+      .select("*")
+      .single());
+  }
 
   if (error || !payment) {
     return jsonError(error?.message || "Could not record payment.", 500);

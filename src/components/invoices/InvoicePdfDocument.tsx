@@ -13,6 +13,8 @@ interface InvoicePdfDocumentProps {
   includeTax?: boolean;
   paymentsCredits?: number;
   paymentHistory?: InvoiceDocumentPayment[];
+  template?: "standard" | "advance";
+  downPaymentPercent?: number | null;
 }
 
 const PROJECT_SUMMARY_ROW_COUNT = 10;
@@ -54,6 +56,8 @@ export default function InvoicePdfDocument({
   includeTax = false,
   paymentsCredits = 0,
   paymentHistory = [],
+  template = "standard",
+  downPaymentPercent = null,
 }: InvoicePdfDocumentProps) {
   return (
     <InvoicePdfSummaryPage
@@ -61,6 +65,8 @@ export default function InvoicePdfDocument({
       includeTax={includeTax}
       paymentsCredits={paymentsCredits}
       paymentHistory={paymentHistory}
+      template={template}
+      downPaymentPercent={downPaymentPercent}
     />
   );
 }
@@ -70,11 +76,15 @@ function InvoicePdfSummaryPage({
   includeTax = false,
   paymentsCredits = 0,
   paymentHistory = [],
+  template = "standard",
+  downPaymentPercent = null,
 }: {
   data: QuoteDocumentData;
   includeTax?: boolean;
   paymentsCredits?: number;
   paymentHistory?: InvoiceDocumentPayment[];
+  template?: "standard" | "advance";
+  downPaymentPercent?: number | null;
 }) {
   const fullAmount = data.roomsTotal + data.servicesTotal;
   const subtotal = fullAmount;
@@ -82,6 +92,17 @@ function InvoicePdfSummaryPage({
   const total = fullAmount + tax;
   const payments = Math.max(0, paymentsCredits);
   const balanceDue = Math.max(0, total - payments);
+  const isAdvance = template === "advance";
+  const downPayment =
+    isAdvance &&
+    downPaymentPercent != null &&
+    Number.isFinite(downPaymentPercent)
+      ? Math.round(total * (downPaymentPercent / 100) * 100) / 100
+      : null;
+  const amountDue = downPayment != null ? downPayment : balanceDue;
+  const balanceDueUponDelivery =
+    downPayment != null ? Math.max(0, total - downPayment) : null;
+  const dueLabel = isAdvance ? "ADVANCE PAYMENT" : "BALANCE DUE";
   const projectRows = data.rooms;
   const summaryRows = [
     ...projectRows.map((room) => ({
@@ -462,22 +483,31 @@ function InvoicePdfSummaryPage({
               <table
                 style={{
                   width: "100%",
-                  borderCollapse: "collapse",
-                  fontSize: 12,
+                  borderCollapse: "separate",
+                  borderSpacing: 0,
+                  fontSize: 11,
                 }}
               >
                 <thead>
                   <tr>
-                    {["DATE", "METHOD", "AMOUNT"].map((title) => (
+                    {[
+                      { title: "DATE", align: "left" as const },
+                      { title: "METHOD", align: "left" as const },
+                      { title: "REFERENCE #", align: "left" as const },
+                      { title: "AMOUNT", align: "right" as const },
+                    ].map(({ title, align }) => (
                       <th
                         key={title}
                         style={{
-                          textAlign: title === "AMOUNT" ? "right" : "left",
-                          padding: "4px 6px",
+                          textAlign: align,
+                          padding: "0 5px 8px",
                           borderBottom: "1px solid #d4d4d4",
-                          fontSize: 11,
+                          fontSize: 10,
                           fontWeight: 700,
+                          lineHeight: 1.35,
+                          verticalAlign: "bottom",
                           color: PDF_BAR_COLOR,
+                          whiteSpace: "nowrap",
                         }}
                       >
                         {title}
@@ -490,7 +520,7 @@ function InvoicePdfSummaryPage({
                     <tr key={payment.id}>
                       <td
                         style={{
-                          padding: "4px 6px",
+                          padding: "6px 5px 4px",
                           verticalAlign: "top",
                           whiteSpace: "nowrap",
                         }}
@@ -499,7 +529,7 @@ function InvoicePdfSummaryPage({
                       </td>
                       <td
                         style={{
-                          padding: "4px 6px",
+                          padding: "6px 5px 4px",
                           verticalAlign: "top",
                         }}
                       >
@@ -507,7 +537,15 @@ function InvoicePdfSummaryPage({
                       </td>
                       <td
                         style={{
-                          padding: "4px 6px",
+                          padding: "6px 5px 4px",
+                          verticalAlign: "top",
+                        }}
+                      >
+                        {payment.reference}
+                      </td>
+                      <td
+                        style={{
+                          padding: "6px 5px 4px",
                           verticalAlign: "top",
                           textAlign: "right",
                           whiteSpace: "nowrap",
@@ -570,7 +608,7 @@ function InvoicePdfSummaryPage({
               boxSizing: "border-box",
             }}
           >
-            BALANCE DUE
+            {dueLabel}
           </div>
           <div
             style={{
@@ -593,8 +631,26 @@ function InvoicePdfSummaryPage({
               boxSizing: "border-box",
             }}
           >
-            {formatCurrencyPrecise(balanceDue)}
+            {formatCurrencyPrecise(amountDue)}
           </div>
+          {balanceDueUponDelivery != null ? (
+            <p
+              style={{
+                gridColumn: "2 / 4",
+                gridRow: 6,
+                margin: "8px 0 0",
+                fontSize: 12,
+                fontStyle: "italic",
+                fontWeight: 400,
+                lineHeight: 1.45,
+                color: "#4b5563",
+                textAlign: "left",
+              }}
+            >
+              Balance Due Upon Delivery—{" "}
+              {formatCurrencyPrecise(balanceDueUponDelivery)}
+            </p>
+          ) : null}
         </div>
       </section>
     </section>

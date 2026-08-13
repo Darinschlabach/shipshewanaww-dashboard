@@ -147,6 +147,8 @@ export async function downloadInvoicePdf(opts: {
   meta: InvoiceDetailMeta;
   lineItems: InvoiceDocumentLineItem[];
   includeTax?: boolean;
+  template?: "standard" | "advance";
+  downPaymentPercent?: number | null;
 }): Promise<{ error?: string }> {
   let root: Root | null = null;
   let frame: ReturnType<typeof createPdfIframe> | null = null;
@@ -174,6 +176,8 @@ export async function downloadInvoicePdf(opts: {
           includeTax,
           paymentsCredits,
           paymentHistory,
+          template: opts.template ?? "standard",
+          downPaymentPercent: opts.downPaymentPercent ?? null,
         })
       );
     });

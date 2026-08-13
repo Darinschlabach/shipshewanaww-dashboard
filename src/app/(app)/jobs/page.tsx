@@ -4,7 +4,6 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   IconBriefcase,
-  IconChevronLeft,
   IconChevronRight,
   IconColumns3,
   IconFilter,
@@ -53,8 +52,6 @@ const STAGE_OPTIONS = [
   ...FILTERS.filter((f) => f.value !== "all"),
 ];
 
-const PAGE_SIZE_OPTIONS = [10, 25, 50];
-
 const selectClass =
   "rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-700 focus:border-burgundy focus:outline-none focus:ring-1 focus:ring-burgundy";
 
@@ -71,8 +68,6 @@ export default function JobsPage() {
   const [search, setSearch] = useState("");
   const [stageFilter, setStageFilter] = useState("");
   const [customerFilter, setCustomerFilter] = useState("");
-  const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(10);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
   const [showArchiveModal, setShowArchiveModal] = useState(false);
@@ -182,19 +177,6 @@ export default function JobsPage() {
     });
   }, [jobs, search, filter, stageFilter, customerFilter]);
 
-  const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
-  const safePage = Math.min(page, totalPages);
-  const pageStart = (safePage - 1) * pageSize;
-  const pageJobs = filtered.slice(pageStart, pageStart + pageSize);
-
-  useEffect(() => {
-    setPage(1);
-  }, [search, filter, stageFilter, customerFilter, pageSize]);
-
-  useEffect(() => {
-    if (page > totalPages) setPage(totalPages);
-  }, [page, totalPages]);
-
   async function handleCreate(e: React.FormEvent) {
     e.preventDefault();
     const supabase = createClient();
@@ -283,145 +265,146 @@ export default function JobsPage() {
 
   return (
     <>
-      <PageHeader
-        title="Jobs"
-        actionLabel="+ New job"
-        onAction={() => setShowModal(true)}
-      />
+      <div className="-m-5 flex h-[100vh] flex-col overflow-hidden">
+        <div className="shrink-0 space-y-4 bg-white p-5 pb-4">
+          <PageHeader
+            title="Jobs"
+            actionLabel="+ New job"
+            onAction={() => setShowModal(true)}
+          />
 
-      <div className="mb-4">
-        <FilterBar
-          options={FILTERS}
-          activeOption={filter}
-          onChange={(value) => {
-            setFilter(value);
-            setStageFilter("");
-          }}
-        />
-      </div>
+          <FilterBar
+            options={FILTERS}
+            activeOption={filter}
+            onChange={(value) => {
+              setFilter(value);
+              setStageFilter("");
+            }}
+          />
 
-      <div className="mb-4 flex flex-wrap overflow-hidden rounded-lg border border-gray-200 bg-cream">
-        {statItems.map(({ icon: Icon, value, label, action }, idx) => (
-          <div
-            key={label}
-            className={`flex min-w-[150px] flex-1 items-center gap-3 px-5 py-4 ${
-              idx < statItems.length - 1 ? "border-r border-gray-200" : ""
-            }`}
-          >
-            <Icon size={20} className="shrink-0 text-gray-400" stroke={1.5} />
-            <div className="flex min-h-[3.25rem] flex-1 flex-col">
-              <p className="text-lg font-semibold text-gray-900">{value}</p>
-              <p className="text-xs text-gray-500">{label}</p>
-              {action ? (
-                <button
-                  type="button"
-                  onClick={action.onClick}
-                  className="mt-auto self-end text-xs font-medium text-burgundy underline hover:text-burgundy/80"
-                >
-                  {action.label}
-                </button>
-              ) : (
-                <p className="text-xs font-medium text-transparent">.</p>
+          <div className="flex flex-wrap overflow-hidden rounded-lg border border-gray-200 bg-cream">
+            {statItems.map(({ icon: Icon, value, label, action }, idx) => (
+              <div
+                key={label}
+                className={`flex min-w-[150px] flex-1 items-center gap-3 px-5 py-4 ${
+                  idx < statItems.length - 1 ? "border-r border-gray-200" : ""
+                }`}
+              >
+                <Icon size={20} className="shrink-0 text-gray-400" stroke={1.5} />
+                <div className="flex min-h-[3.25rem] flex-1 flex-col">
+                  <p className="text-lg font-semibold text-gray-900">{value}</p>
+                  <p className="text-xs text-gray-500">{label}</p>
+                  {action ? (
+                    <button
+                      type="button"
+                      onClick={action.onClick}
+                      className="mt-auto self-end text-xs font-medium text-burgundy underline hover:text-burgundy/80"
+                    >
+                      {action.label}
+                    </button>
+                  ) : (
+                    <p className="text-xs font-medium text-transparent">.</p>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="relative min-w-[220px] flex-1">
+              <IconSearch
+                size={18}
+                className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"
+              />
+              <input
+                type="search"
+                placeholder="Search jobs…"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                className="w-full rounded-md border border-gray-300 py-2 pl-10 pr-3 text-sm focus:border-burgundy focus:outline-none focus:ring-1 focus:ring-burgundy"
+              />
+            </div>
+
+            <select
+              value={stageFilter}
+              onChange={(e) => setStageFilter(e.target.value)}
+              className={selectClass}
+            >
+              {STAGE_OPTIONS.map((opt) => (
+                <option key={opt.value || "all-stages"} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
+            </select>
+
+            <select
+              value={customerFilter}
+              onChange={(e) => setCustomerFilter(e.target.value)}
+              className={selectClass}
+            >
+              <option value="">All customers</option>
+              {contacts.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}
+                </option>
+              ))}
+            </select>
+
+            <button
+              type="button"
+              className="inline-flex items-center gap-2 rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"
+            >
+              <IconFilter size={16} />
+              Filters
+            </button>
+
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => setShowColumns((v) => !v)}
+                className="inline-flex items-center gap-2 rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"
+              >
+                <IconColumns3 size={16} />
+                Columns
+              </button>
+              {showColumns && (
+                <div className="absolute right-0 z-10 mt-1 w-44 rounded-md border border-gray-200 bg-white py-2 shadow-lg">
+                  {(
+                    [
+                      ["customer", "Customer"],
+                      ["stage", "Stage"],
+                      ["due", "Due"],
+                      ["value", "Value"],
+                      ["updated", "Updated"],
+                    ] as const
+                  ).map(([key, label]) => (
+                    <label
+                      key={key}
+                      className="flex cursor-pointer items-center gap-2 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={visibleColumns[key]}
+                        onChange={() => toggleColumn(key)}
+                        className="rounded border-gray-300"
+                      />
+                      {label}
+                    </label>
+                  ))}
+                </div>
               )}
             </div>
           </div>
-        ))}
-      </div>
-
-      <div className="mb-4 flex flex-wrap items-center gap-3">
-        <div className="relative min-w-[220px] flex-1">
-          <IconSearch
-            size={18}
-            className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"
-          />
-          <input
-            type="search"
-            placeholder="Search jobs…"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="w-full rounded-md border border-gray-300 py-2 pl-10 pr-3 text-sm focus:border-burgundy focus:outline-none focus:ring-1 focus:ring-burgundy"
-          />
         </div>
 
-        <select
-          value={stageFilter}
-          onChange={(e) => setStageFilter(e.target.value)}
-          className={selectClass}
-        >
-          {STAGE_OPTIONS.map((opt) => (
-            <option key={opt.value || "all-stages"} value={opt.value}>
-              {opt.label}
-            </option>
-          ))}
-        </select>
-
-        <select
-          value={customerFilter}
-          onChange={(e) => setCustomerFilter(e.target.value)}
-          className={selectClass}
-        >
-          <option value="">All customers</option>
-          {contacts.map((c) => (
-            <option key={c.id} value={c.id}>
-              {c.name}
-            </option>
-          ))}
-        </select>
-
-        <button
-          type="button"
-          className="inline-flex items-center gap-2 rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"
-        >
-          <IconFilter size={16} />
-          Filters
-        </button>
-
-        <div className="relative">
-          <button
-            type="button"
-            onClick={() => setShowColumns((v) => !v)}
-            className="inline-flex items-center gap-2 rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"
-          >
-            <IconColumns3 size={16} />
-            Columns
-          </button>
-          {showColumns && (
-            <div className="absolute right-0 z-10 mt-1 w-44 rounded-md border border-gray-200 bg-white py-2 shadow-lg">
-              {(
-                [
-                  ["customer", "Customer"],
-                  ["stage", "Stage"],
-                  ["due", "Due"],
-                  ["value", "Value"],
-                  ["updated", "Updated"],
-                ] as const
-              ).map(([key, label]) => (
-                <label
-                  key={key}
-                  className="flex cursor-pointer items-center gap-2 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50"
-                >
-                  <input
-                    type="checkbox"
-                    checked={visibleColumns[key]}
-                    onChange={() => toggleColumn(key)}
-                    className="rounded border-gray-300"
-                  />
-                  {label}
-                </label>
-              ))}
-            </div>
-          )}
-        </div>
-      </div>
-
-      {loading ? (
-        <p className="text-gray-500">Loading…</p>
-      ) : (
-        <>
-          <div className="overflow-hidden rounded-lg border border-gray-200">
-            <table className="w-full text-left text-sm">
-              <thead>
-                <tr className="border-b border-gray-200 bg-gray-50">
+        <div className="min-h-0 flex-1 overflow-y-auto px-5 pb-5">
+          {loading ? (
+            <p className="text-gray-500">Loading…</p>
+          ) : (
+            <div className="overflow-hidden rounded-lg border border-gray-200">
+              <table className="w-full text-left text-sm">
+                <thead>
+                  <tr className="sticky top-0 z-10 border-b border-gray-200 bg-gray-50">
                   <th className="px-4 py-3 text-xs font-medium uppercase tracking-wide text-gray-500">
                     Job
                   </th>
@@ -454,7 +437,7 @@ export default function JobsPage() {
                 </tr>
               </thead>
               <tbody>
-                {pageJobs.map((job) => (
+                {filtered.map((job) => (
                   <tr
                     key={job.id}
                     onClick={() => router.push(`/jobs/${job.id}`)}
@@ -519,7 +502,7 @@ export default function JobsPage() {
                     </td>
                   </tr>
                 ))}
-                {pageJobs.length === 0 && (
+                {filtered.length === 0 && (
                   <tr>
                     <td
                       colSpan={7}
@@ -532,85 +515,9 @@ export default function JobsPage() {
               </tbody>
             </table>
           </div>
-
-          <div className="mt-4 flex flex-wrap items-center justify-between gap-3 text-sm text-gray-600">
-            <p>
-              {filtered.length === 0
-                ? "No jobs to show"
-                : `Showing ${pageStart + 1} to ${Math.min(pageStart + pageSize, filtered.length)} of ${filtered.length} job${filtered.length !== 1 ? "s" : ""}`}
-            </p>
-
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => setPage((p) => Math.max(1, p - 1))}
-                disabled={safePage <= 1}
-                className="rounded-md border border-gray-300 p-1.5 hover:bg-gray-50 disabled:opacity-40"
-                aria-label="Previous page"
-              >
-                <IconChevronLeft size={16} />
-              </button>
-
-              {Array.from({ length: totalPages }, (_, i) => i + 1)
-                .filter(
-                  (p) =>
-                    p === 1 ||
-                    p === totalPages ||
-                    Math.abs(p - safePage) <= 1
-                )
-                .reduce<(number | "ellipsis")[]>((acc, p, idx, arr) => {
-                  if (idx > 0 && p - (arr[idx - 1] as number) > 1) {
-                    acc.push("ellipsis");
-                  }
-                  acc.push(p);
-                  return acc;
-                }, [])
-                .map((item, idx) =>
-                  item === "ellipsis" ? (
-                    <span key={`ellipsis-${idx}`} className="px-1 text-gray-400">
-                      …
-                    </span>
-                  ) : (
-                    <button
-                      key={item}
-                      type="button"
-                      onClick={() => setPage(item)}
-                      className={`min-w-[2rem] rounded-md border px-2 py-1 ${
-                        item === safePage
-                          ? "border-gray-900 bg-gray-900 text-white"
-                          : "border-gray-300 hover:bg-gray-50"
-                      }`}
-                    >
-                      {item}
-                    </button>
-                  )
-                )}
-
-              <button
-                type="button"
-                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-                disabled={safePage >= totalPages}
-                className="rounded-md border border-gray-300 p-1.5 hover:bg-gray-50 disabled:opacity-40"
-                aria-label="Next page"
-              >
-                <IconChevronRight size={16} />
-              </button>
-
-              <select
-                value={pageSize}
-                onChange={(e) => setPageSize(Number(e.target.value))}
-                className={selectClass}
-              >
-                {PAGE_SIZE_OPTIONS.map((size) => (
-                  <option key={size} value={size}>
-                    {size} / page
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
-        </>
-      )}
+          )}
+        </div>
+      </div>
 
       {showModal && (
         <Modal title="New job" onClose={() => setShowModal(false)}>

@@ -1234,6 +1234,51 @@ function ScheduleEditorModal({
 }) {
   const { phaseDates, selectedColor } = useProductionSchedule();
   const supabase = useMemo(() => createClient(), []);
+  const calendarContainerRef = useRef<HTMLDivElement>(null);
+  const [editorMonth, setEditorMonth] = useState(() => {
+    const iso =
+      phaseDates.fabricating ??
+      phaseDates.finishing ??
+      phaseDates.delivery;
+    return iso ? new Date(`${iso}T12:00:00`) : new Date(monthDate);
+  });
+
+  useEffect(() => {
+    const el = calendarContainerRef.current;
+    if (!el) return;
+
+    let accumulatedDelta = 0;
+
+    const onWheel = (event: WheelEvent) => {
+      event.preventDefault();
+      accumulatedDelta += event.deltaY;
+      if (Math.abs(accumulatedDelta) < 48) return;
+
+      const delta = accumulatedDelta > 0 ? 1 : -1;
+      accumulatedDelta = 0;
+      setEditorMonth((prev) => {
+        const next = new Date(prev);
+        next.setMonth(next.getMonth() + delta);
+        return next;
+      });
+    };
+
+    el.addEventListener("wheel", onWheel, { passive: false });
+    return () => el.removeEventListener("wheel", onWheel);
+  }, []);
+
+  function shiftEditorMonth(delta: number) {
+    setEditorMonth((prev) => {
+      const next = new Date(prev);
+      next.setMonth(next.getMonth() + delta);
+      return next;
+    });
+  }
+
+  const monthLabel = editorMonth.toLocaleDateString("en-US", {
+    month: "long",
+    year: "numeric",
+  });
 
   async function handleSave() {
     const result = await saveJobSchedule(
@@ -1251,18 +1296,12 @@ function ScheduleEditorModal({
   }
 
   return (
-    <div
-      className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 p-4"
-      onClick={onClose}
-    >
-      <div
-        className="flex h-[min(90vh,740px)] w-[min(95vw,1200px)] flex-col overflow-hidden rounded-lg border border-gray-200 bg-white shadow-xl"
-        onClick={(e) => e.stopPropagation()}
-      >
+    <div className="fixed top-[0.5in] right-[1in] bottom-[0.5in] left-[1in] z-[100] flex flex-col overflow-hidden border border-gray-200 bg-white shadow-xl">
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
         <div className="flex min-h-0 flex-1 overflow-hidden">
-          <div className="flex min-h-0 w-72 flex-col border-r border-gray-200 bg-white">
+          <div className="flex min-h-0 w-1/4 flex-col border-r border-gray-200 bg-white">
             <div className="flex h-14 shrink-0 items-center border-b border-gray-200 px-4">
-              <p className="text-base font-semibold text-gray-900">
+              <p className="truncate text-base font-semibold text-gray-900">
                 {clientName && clientName !== "—"
                   ? `${jobName}-${clientName}`
                   : jobName}
@@ -1270,14 +1309,34 @@ function ScheduleEditorModal({
             </div>
             <ProductionSchedulePanel />
           </div>
-          <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-white">
-            <div className="grid h-14 shrink-0 grid-cols-[1fr_auto_1fr] items-center border-b border-gray-200 px-4">
-              <h2 className="text-sm font-semibold text-gray-900">Production Calendar</h2>
-              <div className="text-sm font-semibold text-gray-900">
-                {monthDate.toLocaleDateString("en-US", {
-                  month: "long",
-                  year: "numeric",
-                })}
+          <div
+            ref={calendarContainerRef}
+            className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-white"
+          >
+            <div className="grid shrink-0 grid-cols-[1fr_auto_1fr] items-center border-b border-gray-200 px-4 py-2.5">
+              <h2 className="text-sm font-semibold text-gray-900">
+                Production Calendar
+              </h2>
+              <div className="flex items-center justify-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => shiftEditorMonth(-1)}
+                  className="rounded-md border border-gray-300 p-1.5 hover:bg-gray-50"
+                  aria-label="Previous month"
+                >
+                  <IconChevronLeft size={18} />
+                </button>
+                <h2 className="min-w-[10rem] truncate text-center text-sm font-semibold text-gray-900">
+                  {monthLabel}
+                </h2>
+                <button
+                  type="button"
+                  onClick={() => shiftEditorMonth(1)}
+                  className="rounded-md border border-gray-300 p-1.5 hover:bg-gray-50"
+                  aria-label="Next month"
+                >
+                  <IconChevronRight size={18} />
+                </button>
               </div>
               <button
                 type="button"
@@ -1288,25 +1347,27 @@ function ScheduleEditorModal({
                 <IconX size={18} />
               </button>
             </div>
-            <div className="grid shrink-0 grid-cols-7 border-b border-gray-200 bg-gray-50">
-              {MONTH_DAY_HEADERS.map((d) => (
-                <div
-                  key={d}
-                  className="border-r border-gray-200 py-2.5 text-center text-xs font-semibold uppercase tracking-wide text-gray-500 last:border-r-0"
-                >
-                  {d}
-                </div>
-              ))}
+            <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+              <div className="grid shrink-0 grid-cols-7 border-b border-gray-200 bg-gray-50">
+                {MONTH_DAY_HEADERS.map((d) => (
+                  <div
+                    key={d}
+                    className="border-r border-gray-200 py-2.5 text-center text-xs font-semibold uppercase tracking-wide text-gray-500 last:border-r-0"
+                  >
+                    {d}
+                  </div>
+                ))}
+              </div>
+              <MonthGridView
+                monthDate={editorMonth}
+                eventsByDay={eventsByDay}
+                birthdayByDate={birthdayByDate}
+                todayKey={todayKey}
+                selectedEventId={selectedEventId}
+                onOpenDate={onOpenDate}
+                className="grid min-h-0 flex-1 grid-cols-7 grid-rows-5"
+              />
             </div>
-            <MonthGridView
-              monthDate={monthDate}
-              eventsByDay={eventsByDay}
-              birthdayByDate={birthdayByDate}
-              todayKey={todayKey}
-              selectedEventId={selectedEventId}
-              onOpenDate={onOpenDate}
-              className="grid min-h-0 flex-1 grid-cols-7 grid-rows-5"
-            />
           </div>
         </div>
         <ProductionScheduleFooter onSave={handleSave} onCancel={onClose} />
@@ -2920,6 +2981,7 @@ export default function CalendarPage() {
         <CalendarEmbedProvider
           embedded
           scheduleMode
+          scheduleJobId={scheduleEditor.jobId}
           jobName={scheduleEditor.jobName}
           initialPhaseDates={scheduleEditor.phaseDates}
           initialColor={scheduleEditor.color}

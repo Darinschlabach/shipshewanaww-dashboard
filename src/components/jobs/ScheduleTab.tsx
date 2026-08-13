@@ -36,6 +36,12 @@ const ProductionCalendarPanel = dynamic(
   }
 );
 
+const EMPTY_PHASE_DATES: PhaseDates = {
+  fabricating: null,
+  finishing: null,
+  delivery: null,
+};
+
 const DAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
 interface SchedulePhase {
@@ -536,8 +542,9 @@ export default function ScheduleTab({
             key={overlayKey}
             embedded
             scheduleMode
+            scheduleJobId={jobId}
             jobName={jobName}
-            initialPhaseDates={savedPhaseDates}
+            initialPhaseDates={EMPTY_PHASE_DATES}
             initialColor={savedColor}
           >
             <ProductionScheduleOverlayBody

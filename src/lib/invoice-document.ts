@@ -18,6 +18,7 @@ export type InvoiceDocumentPayment = {
   amount: number;
   paidAt: string;
   method: string;
+  reference: string;
 };
 
 function daysBetween(start: string, end: string): number {
@@ -103,11 +104,22 @@ export async function fetchInvoiceDocumentPayments(
       }
     }
 
-    const { data, error } = await supabase
+    let { data, error } = await supabase
       .from("invoice_payments")
-      .select("id, amount, paid_at, method")
+      .select("id, amount, paid_at, method, reference")
       .in("invoice_id", invoiceIds)
       .order("paid_at", { ascending: true });
+
+    if (
+      error &&
+      error.message.toLowerCase().includes("reference")
+    ) {
+      ({ data, error } = await supabase
+        .from("invoice_payments")
+        .select("id, amount, paid_at, method")
+        .in("invoice_id", invoiceIds)
+        .order("paid_at", { ascending: true }));
+    }
 
     if (error || !data) return [];
 
@@ -116,6 +128,8 @@ export async function fetchInvoiceDocumentPayments(
       amount: Number(row.amount) || 0,
       paidAt: String(row.paid_at).slice(0, 10),
       method: (row.method as string | null)?.trim() || "—",
+      reference:
+        ((row as { reference?: string | null }).reference ?? "").trim() || "—",
     }));
   } catch {
     return [];

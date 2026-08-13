@@ -29,6 +29,19 @@ export type InvoiceRow = Invoice & {
   jobs?: Pick<Job, "id" | "name" | "created_at"> | null;
 };
 
+export function isMissingInvoicePaymentReferenceColumn(
+  message?: string | null
+): boolean {
+  if (!message) return false;
+  const lower = message.toLowerCase();
+  return (
+    lower.includes("reference") &&
+    (lower.includes("invoice_payments") ||
+      lower.includes("schema cache") ||
+      lower.includes("column"))
+  );
+}
+
 export interface InvoicePayment {
   id: string;
   invoice_id: string;

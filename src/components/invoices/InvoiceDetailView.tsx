@@ -30,6 +30,12 @@ import {
   type InvoicePayment,
 } from "@/lib/invoices";
 import {
+  loadInvoiceTemplateSettings,
+  parseDownPaymentPercent,
+  saveInvoiceTemplateSettings,
+  type InvoicePdfTemplate,
+} from "@/lib/invoice-template";
+import {
   buildQuoteRoomSummaries,
   fetchQuoteRoomsWithItems,
 } from "@/lib/quote-rooms";
@@ -659,6 +665,62 @@ function InvoicePreviewPanel({
   const invoiceTotal = Number(invoice.amount) || 0;
   const [downloadingPdf, setDownloadingPdf] = useState(false);
   const [pdfError, setPdfError] = useState<string | null>(null);
+  const [template, setTemplate] = useState<InvoicePdfTemplate>("standard");
+  const [percentDraft, setPercentDraft] = useState("");
+  const [percentSaved, setPercentSaved] = useState(false);
+  const [percentError, setPercentError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const settings = loadInvoiceTemplateSettings(invoice.id);
+    setTemplate(settings.template);
+    setPercentDraft(
+      settings.downPaymentPercent != null
+        ? String(settings.downPaymentPercent)
+        : ""
+    );
+    setPercentSaved(settings.downPaymentSaved);
+    setPercentError(null);
+  }, [invoice.id]);
+
+  function persistTemplate(
+    nextTemplate: InvoicePdfTemplate,
+    nextPercent: number | null,
+    nextSaved: boolean
+  ) {
+    saveInvoiceTemplateSettings(invoice.id, {
+      template: nextTemplate,
+      downPaymentPercent: nextPercent,
+      downPaymentSaved: nextSaved,
+    });
+  }
+
+  function selectTemplate(next: InvoicePdfTemplate) {
+    setTemplate(next);
+    setPercentError(null);
+    persistTemplate(
+      next,
+      parseDownPaymentPercent(percentDraft),
+      next === "advance" ? percentSaved : false
+    );
+  }
+
+  function handleSavePercent() {
+    const parsed = parseDownPaymentPercent(percentDraft);
+    if (parsed == null) {
+      setPercentError("Enter a percent between 0 and 100.");
+      return;
+    }
+    setPercentDraft(String(parsed));
+    setPercentSaved(true);
+    setPercentError(null);
+    persistTemplate("advance", parsed, true);
+  }
+
+  function handleEditPercent() {
+    setPercentSaved(false);
+    setPercentError(null);
+    persistTemplate("advance", parseDownPaymentPercent(percentDraft), false);
+  }
 
   async function handleDownloadPdf() {
     setDownloadingPdf(true);
@@ -669,6 +731,9 @@ function InvoicePreviewPanel({
         invoice,
         meta,
         lineItems,
+        template,
+        downPaymentPercent:
+          template === "advance" ? parseDownPaymentPercent(percentDraft) : null,
       });
       if (error) setPdfError(error);
     } catch (err) {
@@ -682,9 +747,78 @@ function InvoicePreviewPanel({
 
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden">
-      <h3 className="mb-2 shrink-0 text-xs font-semibold uppercase tracking-wide text-gray-500">
-        Invoice Preview
-      </h3>
+      <div className="mb-2 shrink-0">
+        <h3 className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+          Invoice Preview
+        </h3>
+        <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-sm text-gray-700">
+          <label className="inline-flex items-center gap-1.5">
+            <input
+              type="checkbox"
+              checked={template === "standard"}
+              onChange={() => selectTemplate("standard")}
+              className="rounded border-gray-300 text-burgundy focus:ring-burgundy"
+            />
+            Standard
+          </label>
+          <label className="inline-flex items-center gap-1.5">
+            <input
+              type="checkbox"
+              checked={template === "advance"}
+              onChange={() => selectTemplate("advance")}
+              className="rounded border-gray-300 text-burgundy focus:ring-burgundy"
+            />
+            Advance payment
+          </label>
+          {template === "advance" ? (
+            <div className="inline-flex items-center gap-1.5">
+              <input
+                type="number"
+                min={0}
+                max={100}
+                step={0.01}
+                value={percentDraft}
+                disabled={percentSaved}
+                onChange={(e) => {
+                  setPercentDraft(e.target.value);
+                  setPercentError(null);
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    handleSavePercent();
+                  }
+                }}
+                placeholder="%"
+                className="w-16 rounded-md border border-gray-300 px-2 py-1 text-sm disabled:bg-gray-50 disabled:text-gray-700"
+                aria-label="Down payment percent"
+              />
+              <span className="text-xs text-gray-500">%</span>
+              {percentSaved ? (
+                <button
+                  type="button"
+                  onClick={handleEditPercent}
+                  className="rounded p-1 text-gray-400 hover:bg-gray-100 hover:text-burgundy"
+                  aria-label="Edit down payment percent"
+                >
+                  <IconPencil size={16} />
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={handleSavePercent}
+                  className="rounded-md border border-gray-300 bg-white px-2 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50"
+                >
+                  Save
+                </button>
+              )}
+            </div>
+          ) : null}
+        </div>
+        {percentError ? (
+          <p className="mt-1 text-xs text-red-600">{percentError}</p>
+        ) : null}
+      </div>
 
       <div className="mb-3 flex min-h-0 flex-1 flex-col items-center justify-center overflow-hidden rounded-lg border border-gray-200 bg-gradient-to-b from-gray-50 to-white p-4 text-center">
         {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -769,9 +903,7 @@ function InvoicePaymentHistoryPanel({
       const supabase = createClient();
       const { data, error: loadError } = await supabase
         .from("invoice_payments")
-        .select(
-          "id, invoice_id, amount, paid_at, method, reference, qb_id, qb_sync_token, qb_sync_status, qb_last_synced_at, qb_sync_error"
-        )
+        .select("*")
         .eq("invoice_id", invoice.id)
         .order("paid_at", { ascending: false });
 

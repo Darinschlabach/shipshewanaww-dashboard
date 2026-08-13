@@ -10,7 +10,7 @@ export type JobStageDisplay =
 
 const STAGE_BADGE_STYLES: Record<JobStageDisplay, string> = {
   quote: "bg-blue-100 text-blue-800",
-  design: "bg-sky-100 text-sky-800",
+  design: "bg-orange-100 text-orange-800",
   production: "bg-green-100 text-green-800",
   delivery: "bg-purple-100 text-purple-800",
   complete: "bg-gray-100 text-gray-600",
