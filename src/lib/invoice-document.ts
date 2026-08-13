@@ -104,32 +104,47 @@ export async function fetchInvoiceDocumentPayments(
       }
     }
 
-    let { data, error } = await supabase
+    type PaymentQueryRow = {
+      id: string;
+      amount: number | string;
+      paid_at: string;
+      method: string | null;
+      reference?: string | null;
+    };
+
+    let data: PaymentQueryRow[] | null = null;
+    let error: { message: string } | null = null;
+
+    const withReference = await supabase
       .from("invoice_payments")
       .select("id, amount, paid_at, method, reference")
       .in("invoice_id", invoiceIds)
       .order("paid_at", { ascending: true });
 
     if (
-      error &&
-      error.message.toLowerCase().includes("reference")
+      withReference.error &&
+      withReference.error.message.toLowerCase().includes("reference")
     ) {
-      ({ data, error } = await supabase
+      const withoutReference = await supabase
         .from("invoice_payments")
         .select("id, amount, paid_at, method")
         .in("invoice_id", invoiceIds)
-        .order("paid_at", { ascending: true }));
+        .order("paid_at", { ascending: true });
+      data = (withoutReference.data as PaymentQueryRow[] | null) ?? null;
+      error = withoutReference.error;
+    } else {
+      data = (withReference.data as PaymentQueryRow[] | null) ?? null;
+      error = withReference.error;
     }
 
     if (error || !data) return [];
 
     return data.map((row) => ({
-      id: row.id as string,
+      id: row.id,
       amount: Number(row.amount) || 0,
       paidAt: String(row.paid_at).slice(0, 10),
-      method: (row.method as string | null)?.trim() || "—",
-      reference:
-        ((row as { reference?: string | null }).reference ?? "").trim() || "—",
+      method: row.method?.trim() || "—",
+      reference: row.reference?.trim() || "—",
     }));
   } catch {
     return [];

@@ -499,23 +499,28 @@ export default function MonthGridView({
                   color={selectedColor}
                 />
               ) : null}
-              {visibleScheduleRows.map((row) =>
-                row.kind === "preview" ? (
-                  <ScheduleBubbleChip
-                    key="schedule-preview"
-                    bubble={row.bubble}
-                    color={row.color}
-                  />
-                ) : (
+              {visibleScheduleRows.map((row) => {
+                if (row.kind === "preview") {
+                  return (
+                    <ScheduleBubbleChip
+                      key="schedule-preview"
+                      bubble={row.bubble}
+                      color={row.color}
+                    />
+                  );
+                }
+
+                const jobId = row.item.jobId;
+                return (
                   <div
                     key={row.item.id}
                     onContextMenu={
-                      !scheduleMode && onScheduleContextMenu && row.item.jobId
+                      !scheduleMode && onScheduleContextMenu && jobId
                         ? (e) => {
                             e.preventDefault();
                             e.stopPropagation();
                             onScheduleContextMenu({
-                              jobId: row.item.jobId,
+                              jobId,
                               jobName: row.item.bubble.jobName,
                               clientName:
                                 dayEvts.find((event) => event.id === row.item.id)
@@ -532,8 +537,8 @@ export default function MonthGridView({
                       color={row.item.color}
                     />
                   </div>
-                )
-              )}
+                );
+              })}
               {extraScheduleCount > 0 ? (
                 <button
                   type="button"
