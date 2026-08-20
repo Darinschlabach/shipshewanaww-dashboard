@@ -19,6 +19,7 @@ import {
   addCrownMoldingOption,
   addDoorStyleOption,
   renameDoorStyleOption,
+  renameBaseMoldingOption,
   renameCrownMoldingOption,
   addFinishColorOption,
   addFinishTypeOption,
@@ -462,6 +463,17 @@ export default function RoomsTab({ jobId }: RoomsTabProps) {
                 onAddOption={async (name) => {
                   const saved = await addBaseMoldingOption(name);
                   if (saved) await refreshSpecOptions(editingRoom);
+                  return saved;
+                }}
+                onRenameOption={async (oldName, newName) => {
+                  const saved = await renameBaseMoldingOption(oldName, newName);
+                  if (saved) {
+                    await refreshSpecOptions(editingRoom);
+                    await loadRooms();
+                    if (roomForm.base_molding === oldName) {
+                      setRoomForm((prev) => ({ ...prev, base_molding: saved }));
+                    }
+                  }
                   return saved;
                 }}
               />

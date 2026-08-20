@@ -98,6 +98,8 @@ export default function LeadsPage() {
       supabase
         .from("leads")
         .select("*")
+        .is("job_id", null)
+        .is("converted_job_id", null)
         .neq("status", "converted")
         .order("updated_at", { ascending: false }),
       supabase.from("contacts").select("*").order("name"),

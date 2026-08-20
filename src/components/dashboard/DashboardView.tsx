@@ -346,7 +346,12 @@ export default function DashboardView() {
       ] = await withTimeout(
         Promise.all([
           supabase.auth.getUser(),
-          supabase.from("leads").select("*").neq("status", "converted"),
+          supabase
+            .from("leads")
+            .select("*")
+            .is("job_id", null)
+            .is("converted_job_id", null)
+            .neq("status", "converted"),
           supabase.from("jobs").select("*"),
           supabase.from("purchase_orders").select("*, jobs(id, name)"),
           supabase

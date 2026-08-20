@@ -9,9 +9,7 @@ import {
   IconDots,
 } from "@tabler/icons-react";
 import { createClient } from "@/lib/supabase/client";
-import Button from "@/components/Button";
 import InvoiceStatusBadge from "@/components/InvoiceStatusBadge";
-import Modal from "@/components/Modal";
 import {
   formatInvoiceNumber,
   getInvoiceDetailPath,
@@ -62,10 +60,8 @@ export default function JobFinancialsInvoices({ jobId }: JobFinancialsInvoicesPr
   const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState("active");
   const [page, setPage] = useState(1);
-  const [showNewModal, setShowNewModal] = useState(false);
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
-  const [dueDate, setDueDate] = useState("");
 
   const load = useCallback(async () => {
     const supabase = createClient();
@@ -115,16 +111,8 @@ export default function JobFinancialsInvoices({ jobId }: JobFinancialsInvoicesPr
     if (page > totalPages) setPage(totalPages);
   }, [page, totalPages]);
 
-  function openNewInvoiceModal() {
-    if (!job) return;
-    setCreateError(null);
-    setDueDate(job.due_date ?? "");
-    setShowNewModal(true);
-  }
-
-  async function handleCreateInvoice(e: React.FormEvent) {
-    e.preventDefault();
-    if (!job) return;
+  async function handleCreateInvoice() {
+    if (!job || creating) return;
     setCreateError(null);
 
     if (!job.customer_id) {
@@ -153,7 +141,7 @@ export default function JobFinancialsInvoices({ jobId }: JobFinancialsInvoicesPr
         customer_id: job.customer_id,
         customer_name: customerName,
         invoice_date: new Date().toISOString().slice(0, 10),
-        due_date: dueDate || null,
+        due_date: job.due_date ?? null,
         amount: 0,
         status: "open",
       }),
@@ -169,8 +157,6 @@ export default function JobFinancialsInvoices({ jobId }: JobFinancialsInvoicesPr
       return;
     }
 
-    setShowNewModal(false);
-    setCreating(false);
     router.push(`/invoices/${json.data.id}`);
   }
 
@@ -199,11 +185,11 @@ export default function JobFinancialsInvoices({ jobId }: JobFinancialsInvoicesPr
             </select>
             <button
               type="button"
-              onClick={openNewInvoiceModal}
-              disabled={!job}
+              onClick={() => void handleCreateInvoice()}
+              disabled={!job || creating}
               className="inline-flex shrink-0 items-center rounded-md bg-burgundy px-4 py-2 text-sm font-medium text-white hover:bg-burgundy/90 disabled:opacity-50"
             >
-              + New invoice
+              {creating ? "Creating…" : "+ New invoice"}
             </button>
           </div>
         </div>
@@ -332,56 +318,9 @@ export default function JobFinancialsInvoices({ jobId }: JobFinancialsInvoicesPr
         </div>
       </div>
 
-      {showNewModal && job && (
-        <Modal
-          title="New invoice"
-          onClose={() => {
-            if (!creating) setShowNewModal(false);
-          }}
-        >
-          <form onSubmit={handleCreateInvoice} className="space-y-4">
-            <div>
-              <p className="text-sm text-gray-600">
-                Create an invoice for{" "}
-                <span className="font-medium text-gray-900">{job.name}</span>
-                {job.contacts?.name ? (
-                  <>
-                    {" "}
-                    — {job.contacts.name}
-                  </>
-                ) : null}
-                .
-              </p>
-            </div>
-            <div>
-              <label className="mb-1 block text-sm font-medium">Due date</label>
-              <input
-                type="date"
-                value={dueDate}
-                onChange={(e) => setDueDate(e.target.value)}
-                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
-              />
-            </div>
-            {createError && (
-              <p className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
-                {createError}
-              </p>
-            )}
-            <div className="flex justify-end gap-3">
-              <Button
-                type="button"
-                disabled={creating}
-                onClick={() => setShowNewModal(false)}
-              >
-                Cancel
-              </Button>
-              <Button type="submit" variant="primary" disabled={creating}>
-                {creating ? "Creating…" : "Create invoice"}
-              </Button>
-            </div>
-          </form>
-        </Modal>
-      )}
+      {createError ? (
+        <p className="mt-3 text-sm text-red-600">{createError}</p>
+      ) : null}
     </>
   );
 }

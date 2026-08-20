@@ -326,6 +326,18 @@ export async function addBaseMoldingOption(name: string): Promise<string | null>
   return addNamedCatalogOption("pricing_base_moldings", name);
 }
 
+export async function renameBaseMoldingOption(
+  oldName: string,
+  newName: string,
+): Promise<string | null> {
+  return renameNamedCatalogOption(
+    "pricing_base_moldings",
+    "base_molding",
+    oldName,
+    newName,
+  );
+}
+
 export async function addCrownMoldingOption(name: string): Promise<string | null> {
   return addNamedCatalogOption("pricing_crown_moldings", name);
 }
