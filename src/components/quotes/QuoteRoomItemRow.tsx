@@ -65,12 +65,14 @@ const QuoteRoomItemRow = forwardRef<QuoteRoomItemRowHandle, QuoteRoomItemRowProp
         ? { cabinetMultiplier }
         : undefined;
     const qtyRef = useRef<HTMLInputElement>(null);
+    const descriptionRef = useRef<HTMLInputElement>(null);
     const widthRef = useRef<HTMLInputElement>(null);
     const lengthRef = useRef<HTMLInputElement>(null);
     const heightRef = useRef<HTMLInputElement>(null);
     const unitPriceRef = useRef<HTMLInputElement>(null);
 
     const [qty, setQty] = useState(item.qty != null ? String(item.qty) : "");
+    const [description, setDescription] = useState(item.description ?? "");
     const [width, setWidth] = useState(
       item.width_in != null ? String(item.width_in) : ""
     );
@@ -101,6 +103,7 @@ const QuoteRoomItemRow = forwardRef<QuoteRoomItemRowHandle, QuoteRoomItemRowProp
     useEffect(() => {
       if (!isLocked) return;
       setQty(item.qty != null ? String(item.qty) : "");
+      setDescription(item.description ?? "");
       setWidth(item.width_in != null ? String(item.width_in) : "");
       setLength(item.length_in != null ? String(item.length_in) : "");
       setHeight(item.height_in != null ? String(item.height_in) : "");
@@ -114,6 +117,7 @@ const QuoteRoomItemRow = forwardRef<QuoteRoomItemRowHandle, QuoteRoomItemRowProp
     }, [item, isLocked]);
 
     const parsedQty = parseOptionalInt(qty);
+    const trimmedDescription = description.trim();
     const parsedLinePrice = parseOptionalMoney(linePrice);
     const miscUnitPrice =
       isMisc && parsedQty != null && parsedLinePrice != null && parsedQty > 0
@@ -141,6 +145,7 @@ const QuoteRoomItemRow = forwardRef<QuoteRoomItemRowHandle, QuoteRoomItemRowProp
       if (isMisc) {
         await onUpdate(item.id, {
           qty: parsedQty,
+          description: trimmedDescription || null,
           base_price: miscUnitPrice,
         });
         return;
@@ -155,7 +160,12 @@ const QuoteRoomItemRow = forwardRef<QuoteRoomItemRowHandle, QuoteRoomItemRowProp
 
     async function finishEntry() {
       if (isMisc) {
-        if (parsedQty == null || parsedLinePrice == null || parsedQty < 1) {
+        if (
+          parsedQty == null ||
+          parsedLinePrice == null ||
+          parsedQty < 1 ||
+          !trimmedDescription
+        ) {
           return;
         }
         await commitFields();
@@ -189,6 +199,7 @@ const QuoteRoomItemRow = forwardRef<QuoteRoomItemRowHandle, QuoteRoomItemRowProp
 
     function unlock() {
       setQty(item.qty != null ? String(item.qty) : "");
+      setDescription(item.description ?? "");
       setWidth(item.width_in != null ? String(item.width_in) : "");
       setLength(item.length_in != null ? String(item.length_in) : "");
       setHeight(item.height_in != null ? String(item.height_in) : "");
@@ -219,6 +230,8 @@ const QuoteRoomItemRow = forwardRef<QuoteRoomItemRowHandle, QuoteRoomItemRowProp
       return input;
     }
 
+    const miscLabel = trimmedDescription || item.item_type;
+
     return (
       <tr className="border-b border-gray-100 hover:bg-gray-50/80">
         <td className="py-2 pr-2">
@@ -236,7 +249,7 @@ const QuoteRoomItemRow = forwardRef<QuoteRoomItemRowHandle, QuoteRoomItemRowProp
                 handleEnterKey(
                   e,
                   isMisc
-                    ? unitPriceRef
+                    ? descriptionRef
                     : needsDimensions
                       ? widthRef
                       : undefined
@@ -245,13 +258,34 @@ const QuoteRoomItemRow = forwardRef<QuoteRoomItemRowHandle, QuoteRoomItemRowProp
               placeholder="—"
               data-item-qty={item.id}
               className={`${dimInputClass} w-12`}
-              aria-label={`Quantity for ${item.item_type}`}
+              aria-label={`Quantity for ${miscLabel}`}
             />
           )}
         </td>
-        <td className="py-2 pr-3 font-medium text-gray-900">{item.item_type}</td>
+        <td className="py-2 pr-3 font-medium text-gray-900">
+          {isMisc ? (
+            isLocked ? (
+              <span className="text-sm text-gray-900">
+                {item.description?.trim() || "Misc"}
+              </span>
+            ) : (
+              <input
+                ref={descriptionRef}
+                type="text"
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                onKeyDown={(e) => handleEnterKey(e, unitPriceRef)}
+                placeholder="Describe item…"
+                className="w-full min-w-[10rem] rounded border border-gray-300 px-2 py-1 text-sm focus:border-burgundy focus:outline-none focus:ring-1 focus:ring-burgundy"
+                aria-label="Misc item description"
+              />
+            )
+          ) : (
+            item.item_type
+          )}
+        </td>
         <td className="py-2 pr-3 text-gray-500">
-          {item.description?.trim() || "—"}
+          {isMisc ? "Misc" : item.description?.trim() || "—"}
         </td>
         {needsDimensions && (
           <>
@@ -330,7 +364,7 @@ const QuoteRoomItemRow = forwardRef<QuoteRoomItemRowHandle, QuoteRoomItemRowProp
               onKeyDown={(e) => handleEnterKey(e)}
               placeholder="0.00"
               className={`${dimInputClass} ml-auto w-20 text-right`}
-              aria-label={`Price for ${item.item_type}`}
+              aria-label={`Price for ${miscLabel}`}
             />
           ) : previewPrice != null ? (
             formatCurrencyFull(previewPrice)
@@ -344,10 +378,10 @@ const QuoteRoomItemRow = forwardRef<QuoteRoomItemRowHandle, QuoteRoomItemRowProp
               type="button"
               onClick={unlock}
               className="rounded p-1 text-gray-400 hover:bg-gray-100 hover:text-burgundy"
-              aria-label={`Edit ${item.item_type}`}
+              aria-label={`Edit ${miscLabel}`}
               title={
                 isMisc
-                  ? "Edit qty and price"
+                  ? "Edit qty, description, and price"
                   : needsDimensions
                     ? "Edit qty and dimensions"
                     : "Edit qty"
@@ -359,7 +393,7 @@ const QuoteRoomItemRow = forwardRef<QuoteRoomItemRowHandle, QuoteRoomItemRowProp
               type="button"
               onClick={() => onDelete(item)}
               className="rounded p-1 text-gray-400 hover:bg-red-50 hover:text-red-600"
-              aria-label={`Remove ${item.item_type}`}
+              aria-label={`Remove ${miscLabel}`}
             >
               <IconTrash size={14} />
             </button>

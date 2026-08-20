@@ -81,15 +81,19 @@ function formatItemDimensions(item: QuoteRoomItem): string | null {
 }
 
 function mapRoomItems(items: QuoteRoomItem[]): QuoteDocumentRoomItem[] {
-  return items.map((item) => ({
-    id: item.id,
-    qty: formatItemQty(item),
-    name: item.item_type.trim() || "—",
-    category: item.category,
-    subtype: item.description?.trim() || "—",
-    dimensions: formatItemDimensions(item),
-    price: Number(item.price),
-  }));
+  return items.map((item) => {
+    const isMisc = item.item_type === "Misc" && item.catalogue_id == null;
+    const description = item.description?.trim() || "";
+    return {
+      id: item.id,
+      qty: formatItemQty(item),
+      name: isMisc ? description || "Misc" : item.item_type.trim() || "—",
+      category: item.category,
+      subtype: isMisc ? "Misc" : description || "—",
+      dimensions: formatItemDimensions(item),
+      price: Number(item.price),
+    };
+  });
 }
 
 function mapRooms(

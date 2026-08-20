@@ -343,6 +343,7 @@ export default function QuoteRoomsTab({
       .from("quote_room_items")
       .update({
         qty: merged.qty,
+        description: merged.description,
         width_in: merged.width_in,
         length_in: merged.length_in,
         height_in: merged.height_in,
