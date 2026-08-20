@@ -21,6 +21,8 @@ import RoomsTab from "@/components/jobs/RoomsTab";
 import FilesTab from "@/components/jobs/FilesTab";
 import FinancialsTab from "@/components/jobs/FinancialsTab";
 import ScheduleTab from "@/components/jobs/ScheduleTab";
+import AddressAutocomplete from "@/components/AddressAutocomplete";
+import ContactDetailPanel from "@/components/contacts/ContactDetailPanel";
 import ContactSearchSelect from "@/components/ContactSearchSelect";
 import Modal from "@/components/Modal";
 import { getJobStageDisplay } from "@/lib/jobs";
@@ -78,6 +80,7 @@ export default function JobDetailPage() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [showEditInfo, setShowEditInfo] = useState(false);
   const [showAddContact, setShowAddContact] = useState(false);
+  const [showContactDetail, setShowContactDetail] = useState(false);
   const [savingInfo, setSavingInfo] = useState(false);
   const [savingContact, setSavingContact] = useState(false);
   const [infoError, setInfoError] = useState<string | null>(null);
@@ -854,14 +857,21 @@ export default function JobDetailPage() {
             </h3>
             <button
               type="button"
-              onClick={() => void openAddContact()}
+              onClick={(e) => {
+                e.stopPropagation();
+                void openAddContact();
+              }}
               className="text-sm text-burgundy hover:underline"
             >
               {contact ? "+ Change Contact" : "+ Add Contact"}
             </button>
           </div>
           {contact ? (
-            <div className="text-sm">
+            <button
+              type="button"
+              onClick={() => setShowContactDetail(true)}
+              className="w-full rounded-md text-left text-sm transition-colors hover:bg-gray-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-burgundy/30 -mx-1 px-1 py-1"
+            >
               <div className="font-medium text-gray-900">{contact.name}</div>
               {(contact.phone || contact.email) && (
                 <div className="mt-0.5 text-xs text-gray-500">
@@ -873,7 +883,7 @@ export default function JobDetailPage() {
                   {contact.contact_type.replace(/s$/, "")}
                 </div>
               ) : null}
-            </div>
+            </button>
           ) : (
             <p className="text-sm text-gray-500">No contact yet.</p>
           )}
@@ -887,12 +897,12 @@ export default function JobDetailPage() {
           <form onSubmit={handleSaveJobInfo} className="space-y-4">
             <div>
               <label className="mb-1 block text-sm font-medium">Address</label>
-              <input
+              <AddressAutocomplete
+                id="job-info-address"
                 value={infoForm.address}
-                onChange={(e) =>
-                  setInfoForm((prev) => ({ ...prev, address: e.target.value }))
+                onChange={(address) =>
+                  setInfoForm((prev) => ({ ...prev, address }))
                 }
-                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
               />
             </div>
             <div>
@@ -986,6 +996,28 @@ export default function JobDetailPage() {
               </button>
             </div>
           </form>
+        </Modal>
+      ) : null}
+
+      {showContactDetail && contact ? (
+        <Modal
+          title=""
+          hideHeader
+          onClose={() => setShowContactDetail(false)}
+          className="max-h-[92vh] w-full max-w-5xl"
+          bodyClassName="overflow-y-auto"
+        >
+          <ContactDetailPanel
+            contactId={contact.id}
+            variant="modal"
+            onContactUpdated={(updated) =>
+              setJob((prev) => (prev ? { ...prev, contacts: updated } : prev))
+            }
+            onContactDeleted={() => {
+              setShowContactDetail(false);
+              void load();
+            }}
+          />
         </Modal>
       ) : null}
     </div>
