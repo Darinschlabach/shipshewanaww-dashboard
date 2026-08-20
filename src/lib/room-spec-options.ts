@@ -171,6 +171,47 @@ export async function addDoorStyleOption(name: string): Promise<string | null> {
   return data.name;
 }
 
+export async function renameDoorStyleOption(
+  oldName: string,
+  newName: string,
+): Promise<string | null> {
+  const trimmedOld = oldName.trim();
+  const trimmedNew = newName.trim();
+  if (!trimmedOld || !trimmedNew) return null;
+  if (trimmedOld.toLowerCase() === trimmedNew.toLowerCase()) return trimmedNew;
+
+  const supabase = createClient();
+  const { data: conflict } = await supabase
+    .from("pricing_door_styles")
+    .select("name")
+    .ilike("name", trimmedNew)
+    .maybeSingle();
+
+  if (conflict) return conflict.name;
+
+  const { data: row } = await supabase
+    .from("pricing_door_styles")
+    .select("id")
+    .ilike("name", trimmedOld)
+    .maybeSingle();
+
+  if (!row) return null;
+
+  const { error } = await supabase
+    .from("pricing_door_styles")
+    .update({ name: trimmedNew })
+    .eq("id", row.id);
+
+  if (error) return null;
+
+  await supabase
+    .from("rooms")
+    .update({ door_style: trimmedNew })
+    .eq("door_style", trimmedOld);
+
+  return trimmedNew;
+}
+
 export async function addFinishTypeOption(name: string): Promise<string | null> {
   const trimmed = name.trim();
   if (!trimmed) return null;
