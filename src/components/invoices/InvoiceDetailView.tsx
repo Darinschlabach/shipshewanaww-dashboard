@@ -44,7 +44,9 @@ import {
   fetchQuoteServices,
   quoteDeliveryTotal,
 } from "@/lib/quote-services";
+import { formatQuoteDisplayNumber } from "@/lib/quote-detail";
 import { createClient } from "@/lib/supabase/client";
+import type { Lead } from "@/lib/types";
 import { formatCurrencyFull, formatCurrencyPrecise, formatDateLong } from "@/lib/utils";
 import { useEffect, useState, type FormEvent, type ReactNode } from "react";
 import Link from "next/link";
@@ -1302,6 +1304,10 @@ export default function InvoiceDetailView({
   const [quoteItemsError, setQuoteItemsError] = useState<string | null>(null);
   const [savingItems, setSavingItems] = useState(false);
   const [itemsSaveError, setItemsSaveError] = useState<string | null>(null);
+  const [quotePickerOpen, setQuotePickerOpen] = useState(false);
+  const [quotePickerOptions, setQuotePickerOptions] = useState<Lead[]>([]);
+  const [quotePickerHint, setQuotePickerHint] = useState<string | null>(null);
+  const [linkingQuoteId, setLinkingQuoteId] = useState<string | null>(null);
   const meta = buildInvoiceDetail(invoice);
   const canAddQuoteItems = Boolean(invoice.job_id);
   const canPersist = !isSyntheticInvoiceId(invoice.id);
@@ -1440,32 +1446,7 @@ export default function InvoiceDetailView({
     setEditingLineId(null);
   }
 
-  async function handleAddQuoteItems() {
-    if (!invoice.job_id) {
-      setQuoteItemsError("This invoice is not linked to a job.");
-      return;
-    }
-
-    setAddingQuoteItems(true);
-    setQuoteItemsError(null);
-
-    const supabase = createClient();
-    const { data: quotes, error: quoteError } = await supabase
-      .from("leads")
-      .select("id")
-      .or(`job_id.eq.${invoice.job_id},converted_job_id.eq.${invoice.job_id}`)
-      .order("created_at", { ascending: false })
-      .limit(1);
-
-    if (quoteError || !quotes?.length) {
-      setQuoteItemsError(
-        quoteError?.message || "No quote found for this job."
-      );
-      setAddingQuoteItems(false);
-      return;
-    }
-
-    const quoteId = quotes[0].id;
+  async function applyQuoteItemsToInvoice(quoteId: string) {
     const [{ rooms, error: roomsError }, { services, error: servicesError }] =
       await Promise.all([
         fetchQuoteRoomsWithItems(quoteId),
@@ -1474,8 +1455,7 @@ export default function InvoiceDetailView({
 
     if (roomsError || servicesError) {
       setQuoteItemsError(roomsError || servicesError);
-      setAddingQuoteItems(false);
-      return;
+      return false;
     }
 
     const roomLines = buildQuoteRoomSummaries(rooms).map((room) => ({
@@ -1498,8 +1478,7 @@ export default function InvoiceDetailView({
 
     if (quoteLines.length === 0) {
       setQuoteItemsError("This quote has no rooms or delivery amount to add.");
-      setAddingQuoteItems(false);
-      return;
+      return false;
     }
 
     const next = [
@@ -1507,8 +1486,130 @@ export default function InvoiceDetailView({
       ...quoteLines,
     ];
     setLineItems(next);
-    setAddingQuoteItems(false);
     await persistLineItems(next);
+    return true;
+  }
+
+  async function linkQuoteToJob(quoteId: string) {
+    if (!invoice.job_id) return false;
+    const supabase = createClient();
+    const { error } = await supabase
+      .from("leads")
+      .update({ job_id: invoice.job_id })
+      .eq("id", quoteId);
+    if (error) {
+      setQuoteItemsError(
+        error.message.includes("job_id") || error.message.includes("column")
+          ? `${error.message} Run supabase/migrations/20260622000001_leads_job_id.sql in the Supabase SQL Editor, then retry.`
+          : error.message
+      );
+      return false;
+    }
+    return true;
+  }
+
+  async function handleSelectQuoteForItems(quote: Lead, shouldLink: boolean) {
+    setLinkingQuoteId(quote.id);
+    setQuoteItemsError(null);
+    setAddingQuoteItems(true);
+
+    if (shouldLink) {
+      const linked = await linkQuoteToJob(quote.id);
+      if (!linked) {
+        setAddingQuoteItems(false);
+        setLinkingQuoteId(null);
+        return;
+      }
+    }
+
+    const ok = await applyQuoteItemsToInvoice(quote.id);
+    setAddingQuoteItems(false);
+    setLinkingQuoteId(null);
+    if (ok) {
+      setQuotePickerOpen(false);
+      setQuotePickerOptions([]);
+      setQuotePickerHint(null);
+    }
+  }
+
+  async function handleAddQuoteItems() {
+    if (!invoice.job_id) {
+      setQuoteItemsError("This invoice is not linked to a job.");
+      return;
+    }
+
+    setAddingQuoteItems(true);
+    setQuoteItemsError(null);
+
+    const supabase = createClient();
+    const { data: linkedQuotes, error: quoteError } = await supabase
+      .from("leads")
+      .select("*")
+      .or(`job_id.eq.${invoice.job_id},converted_job_id.eq.${invoice.job_id}`)
+      .order("created_at", { ascending: false });
+
+    if (quoteError) {
+      setQuoteItemsError(quoteError.message);
+      setAddingQuoteItems(false);
+      return;
+    }
+
+    const linked = (linkedQuotes as Lead[]) ?? [];
+    if (linked.length === 1) {
+      const ok = await applyQuoteItemsToInvoice(linked[0].id);
+      setAddingQuoteItems(false);
+      if (!ok) return;
+      return;
+    }
+
+    if (linked.length > 1) {
+      setQuotePickerOptions(linked);
+      setQuotePickerHint(
+        "Multiple quotes are linked to this job. Choose which one to pull items from."
+      );
+      setQuotePickerOpen(true);
+      setAddingQuoteItems(false);
+      return;
+    }
+
+    // No linked quote — find candidates by customer / contact so the user can link one.
+    let candidatesQuery = supabase
+      .from("leads")
+      .select("*")
+      .order("created_at", { ascending: false })
+      .limit(40);
+
+    if (invoice.customer_id) {
+      candidatesQuery = candidatesQuery.eq("contact_id", invoice.customer_id);
+    } else if (invoice.customer_name.trim()) {
+      candidatesQuery = candidatesQuery.ilike(
+        "customer_name",
+        `%${invoice.customer_name.trim()}%`
+      );
+    }
+
+    const { data: candidates, error: candidatesError } = await candidatesQuery;
+    if (candidatesError) {
+      setQuoteItemsError(candidatesError.message);
+      setAddingQuoteItems(false);
+      return;
+    }
+
+    const options = (candidates as Lead[]) ?? [];
+    if (options.length === 0) {
+      setQuoteItemsError(
+        "No quote is linked to this job. Open the job’s Financials → Quotes and create a quote there, or convert a quote into this job first."
+      );
+      setAddingQuoteItems(false);
+      return;
+    }
+
+    setQuotePickerOptions(options);
+    setQuotePickerHint(
+      "No quote is linked to this job yet. Pick a quote below to link it to the job and add its rooms/delivery as invoice items."
+    );
+    setQuotePickerOpen(true);
+    setAddingQuoteItems(false);
   }
 
   const fillHeight =
@@ -1747,6 +1848,61 @@ export default function InvoiceDetailView({
           {TABS.find((tab) => tab.id === activeTab)?.label} coming soon.
         </div>
       )}
+
+      {quotePickerOpen ? (
+        <Modal
+          title="Select quote"
+          onClose={() => {
+            if (linkingQuoteId) return;
+            setQuotePickerOpen(false);
+            setQuotePickerOptions([]);
+            setQuotePickerHint(null);
+          }}
+          className="max-h-[90vh] w-full max-w-lg"
+          bodyClassName="overflow-y-auto"
+        >
+          {quotePickerHint ? (
+            <p className="mb-4 text-sm text-gray-600">{quotePickerHint}</p>
+          ) : null}
+          <div className="space-y-2">
+            {quotePickerOptions.map((quote) => {
+              const needsLink =
+                quote.job_id !== invoice.job_id &&
+                quote.converted_job_id !== invoice.job_id;
+              return (
+                <button
+                  key={quote.id}
+                  type="button"
+                  disabled={!!linkingQuoteId}
+                  onClick={() =>
+                    void handleSelectQuoteForItems(quote, needsLink)
+                  }
+                  className="flex w-full items-start justify-between gap-3 rounded-lg border border-gray-200 px-4 py-3 text-left hover:border-burgundy/40 hover:bg-burgundy/5 disabled:opacity-50"
+                >
+                  <div className="min-w-0">
+                    <p className="font-medium text-gray-900">
+                      {quote.project_type?.trim() || quote.customer_name}
+                    </p>
+                    <p className="mt-0.5 text-xs text-gray-500">
+                      {formatQuoteDisplayNumber(quote)}
+                      {quote.customer_name
+                        ? ` · ${quote.customer_name}`
+                        : ""}
+                    </p>
+                  </div>
+                  <span className="shrink-0 text-sm font-medium text-burgundy">
+                    {linkingQuoteId === quote.id
+                      ? "Adding…"
+                      : needsLink
+                        ? "Link & add"
+                        : "Add items"}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </Modal>
+      ) : null}
 
       {showDelete && (
         <ConfirmModal
