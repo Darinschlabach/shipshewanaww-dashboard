@@ -101,6 +101,49 @@ async function addNamedCatalogOption(
   return data.name;
 }
 
+async function renameNamedCatalogOption(
+  table: "pricing_base_moldings" | "pricing_crown_moldings",
+  roomColumn: "base_molding" | "crown_molding",
+  oldName: string,
+  newName: string,
+): Promise<string | null> {
+  const trimmedOld = oldName.trim();
+  const trimmedNew = newName.trim();
+  if (!trimmedOld || !trimmedNew) return null;
+  if (trimmedOld.toLowerCase() === trimmedNew.toLowerCase()) return trimmedNew;
+
+  const supabase = createClient();
+  const { data: conflict } = await supabase
+    .from(table)
+    .select("name")
+    .ilike("name", trimmedNew)
+    .maybeSingle();
+
+  if (conflict) return conflict.name;
+
+  const { data: row } = await supabase
+    .from(table)
+    .select("id")
+    .ilike("name", trimmedOld)
+    .maybeSingle();
+
+  if (!row) return null;
+
+  const { error } = await supabase
+    .from(table)
+    .update({ name: trimmedNew })
+    .eq("id", row.id);
+
+  if (error) return null;
+
+  await supabase
+    .from("rooms")
+    .update({ [roomColumn]: trimmedNew })
+    .eq(roomColumn, trimmedOld);
+
+  return trimmedNew;
+}
+
 export async function addWoodSpeciesOption(name: string): Promise<string | null> {
   const trimmed = name.trim();
   if (!trimmed) return null;
@@ -285,4 +328,16 @@ export async function addBaseMoldingOption(name: string): Promise<string | null>
 
 export async function addCrownMoldingOption(name: string): Promise<string | null> {
   return addNamedCatalogOption("pricing_crown_moldings", name);
+}
+
+export async function renameCrownMoldingOption(
+  oldName: string,
+  newName: string,
+): Promise<string | null> {
+  return renameNamedCatalogOption(
+    "pricing_crown_moldings",
+    "crown_molding",
+    oldName,
+    newName,
+  );
 }

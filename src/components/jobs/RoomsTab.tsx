@@ -19,6 +19,7 @@ import {
   addCrownMoldingOption,
   addDoorStyleOption,
   renameDoorStyleOption,
+  renameCrownMoldingOption,
   addFinishColorOption,
   addFinishTypeOption,
   addWoodSpeciesOption,
@@ -474,6 +475,17 @@ export default function RoomsTab({ jobId }: RoomsTabProps) {
                 onAddOption={async (name) => {
                   const saved = await addCrownMoldingOption(name);
                   if (saved) await refreshSpecOptions(editingRoom);
+                  return saved;
+                }}
+                onRenameOption={async (oldName, newName) => {
+                  const saved = await renameCrownMoldingOption(oldName, newName);
+                  if (saved) {
+                    await refreshSpecOptions(editingRoom);
+                    await loadRooms();
+                    if (roomForm.crown_molding === oldName) {
+                      setRoomForm((prev) => ({ ...prev, crown_molding: saved }));
+                    }
+                  }
                   return saved;
                 }}
               />
