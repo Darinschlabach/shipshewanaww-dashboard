@@ -99,5 +99,4 @@ export function resolvedQuoteItemPrice(
 export const QUOTE_ITEM_CATEGORIES: { value: QuoteRoomItemCategory; label: string }[] = [
   { value: "cabinets", label: "Cabinets" },
   { value: "components", label: "Components" },
-  { value: "labor", label: "Labor" },
 ];

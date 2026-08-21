@@ -394,7 +394,7 @@ export default function QuoteRoomsTab({
         base_price: 0,
         sq_ft_price: 0,
         price: 0,
-        category: "labor",
+        category: "components",
       })
       .select("*")
       .single();

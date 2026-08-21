@@ -610,6 +610,43 @@ export async function relocateJobSharePointFolderForContact(
 }
 
 /**
+ * Renames the job SharePoint folder to match the job name, using DriveItem ID.
+ * Does not create a second folder.
+ */
+export async function renameJobSharePointFolder(opts: {
+  jobId: string;
+  newJobName: string;
+}): Promise<JobGraphFolderIds> {
+  const ids = await ensureJobSharePointFolders(opts.jobId);
+  const nextName = sanitizeSharePointFolderName(opts.newJobName);
+
+  try {
+    const { data } = await microsoftGraphPatch<GraphDriveItem>(
+      `/drives/${encodeURIComponent(ids.graph_drive_id)}/items/${encodeURIComponent(ids.graph_folder_item_id)}`,
+      { name: nextName },
+      { timeoutMs: 30_000 }
+    );
+
+    const updated: JobGraphFolderIds = {
+      ...ids,
+      graph_web_url: data.webUrl ?? ids.graph_web_url,
+    };
+    await saveJobGraphIds(opts.jobId, updated);
+    return updated;
+  } catch (err) {
+    if (
+      err instanceof MicrosoftGraphAuthError &&
+      (err.status === 409 ||
+        /nameAlreadyExists|already exists/i.test(err.message))
+    ) {
+      // Keep DriveItem relationship; name collision is non-fatal.
+      return ids;
+    }
+    throw err;
+  }
+}
+
+/**
  * Moves the quote's SharePoint project folder into Jobs (or the contractor's Jobs
  * folder) using the same DriveItem ID, ensures job-only subfolders, and stores IDs.
  * Idempotent and does not duplicate files.

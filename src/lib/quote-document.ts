@@ -88,7 +88,7 @@ function mapRoomItems(items: QuoteRoomItem[]): QuoteDocumentRoomItem[] {
       id: item.id,
       qty: formatItemQty(item),
       name: isMisc ? description || "Misc" : item.item_type.trim() || "—",
-      category: item.category,
+      category: item.category === "labor" ? "components" : item.category,
       subtype: isMisc ? "Misc" : description || "—",
       dimensions: formatItemDimensions(item),
       price: Number(item.price),

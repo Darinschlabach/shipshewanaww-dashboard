@@ -81,6 +81,10 @@ export default function JobDetailPage() {
   const [showEditInfo, setShowEditInfo] = useState(false);
   const [showAddContact, setShowAddContact] = useState(false);
   const [showContactDetail, setShowContactDetail] = useState(false);
+  const [showRenameJob, setShowRenameJob] = useState(false);
+  const [jobNameDraft, setJobNameDraft] = useState("");
+  const [savingJobName, setSavingJobName] = useState(false);
+  const [renameError, setRenameError] = useState<string | null>(null);
   const [savingInfo, setSavingInfo] = useState(false);
   const [savingContact, setSavingContact] = useState(false);
   const [infoError, setInfoError] = useState<string | null>(null);
@@ -159,6 +163,56 @@ export default function JobDetailPage() {
       fax: job.fax?.trim() || job.contacts?.fax?.trim() || "",
     });
     setShowEditInfo(true);
+  }
+
+  function openRenameJob() {
+    if (!job) return;
+    setRenameError(null);
+    setJobNameDraft(job.name);
+    setShowRenameJob(true);
+  }
+
+  async function handleSaveJobName(e: FormEvent) {
+    e.preventDefault();
+    if (!job) return;
+    const name = jobNameDraft.trim();
+    if (!name) {
+      setRenameError("Job name is required.");
+      return;
+    }
+
+    setSavingJobName(true);
+    setRenameError(null);
+    const supabase = createClient();
+    const { error } = await supabase
+      .from("jobs")
+      .update({ name })
+      .eq("id", id);
+
+    if (error) {
+      setRenameError(error.message);
+      setSavingJobName(false);
+      return;
+    }
+
+    const { renameJobSharePointFolderClient } = await import("@/lib/job-files");
+    const sharePoint = await renameJobSharePointFolderClient({
+      jobId: id,
+      jobName: name,
+    });
+    if (!sharePoint.ok) {
+      setRenameError(
+        sharePoint.error ??
+          "Job name saved, but the SharePoint folder could not be renamed."
+      );
+      setJob({ ...job, name });
+      setSavingJobName(false);
+      return;
+    }
+
+    setJob({ ...job, name });
+    setSavingJobName(false);
+    setShowRenameJob(false);
   }
 
   async function handleSaveJobInfo(e: FormEvent) {
@@ -517,6 +571,15 @@ export default function JobDetailPage() {
           <div>
             <div className="flex items-center gap-3">
               <h1 className="text-2xl font-semibold text-gray-900">{job.name}</h1>
+              <button
+                type="button"
+                onClick={openRenameJob}
+                className="rounded p-1 text-gray-400 hover:bg-gray-100 hover:text-burgundy"
+                aria-label="Rename job"
+                title="Rename job"
+              >
+                <IconPencil size={16} />
+              </button>
               <span
                 className={`inline-flex rounded-full px-3 py-1 text-sm font-medium ${currentStageLabel.className}`}
               >
@@ -890,6 +953,53 @@ export default function JobDetailPage() {
         </div>
       </div>
         </>
+      ) : null}
+
+      {showRenameJob ? (
+        <Modal
+          title="Rename job"
+          onClose={() => {
+            if (!savingJobName) setShowRenameJob(false);
+          }}
+        >
+          <form onSubmit={handleSaveJobName} className="space-y-4">
+            <p className="text-sm text-gray-600">
+              Customer:{" "}
+              <span className="font-medium text-gray-900">{customerName}</span>
+            </p>
+            <div>
+              <label className="mb-1 block text-sm font-medium">Job name</label>
+              <input
+                required
+                autoFocus
+                value={jobNameDraft}
+                onChange={(e) => setJobNameDraft(e.target.value)}
+                placeholder="e.g. Jamison Kitchen"
+                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
+              />
+            </div>
+            {renameError ? (
+              <p className="text-sm text-red-600">{renameError}</p>
+            ) : null}
+            <div className="flex justify-end gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setShowRenameJob(false)}
+                disabled={savingJobName}
+                className="rounded-md border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={savingJobName}
+                className="rounded-md bg-burgundy px-4 py-2 text-sm font-medium text-white hover:bg-burgundy/90 disabled:opacity-50"
+              >
+                {savingJobName ? "Saving…" : "Save"}
+              </button>
+            </div>
+          </form>
+        </Modal>
       ) : null}
 
       {showEditInfo ? (

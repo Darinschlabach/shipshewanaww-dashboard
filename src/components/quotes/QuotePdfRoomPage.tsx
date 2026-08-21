@@ -128,8 +128,9 @@ export default function QuotePdfRoomPage({
   isLastPage = false,
 }: QuotePdfRoomPageProps) {
   const cabinets = room.items.filter((item) => item.category === "cabinets");
-  const components = room.items.filter((item) => item.category === "components");
-  const labor = room.items.filter((item) => item.category === "labor");
+  const components = room.items.filter(
+    (item) => item.category === "components" || item.category === "labor"
+  );
 
   return (
     <section
@@ -204,13 +205,6 @@ export default function QuotePdfRoomPage({
           <PdfSectionTitle>COMPONENTS</PdfSectionTitle>
           <ItemTable items={components} showDimensions={false} />
         </div>
-
-        {labor.length > 0 && (
-          <div style={{ marginTop: 16 }}>
-            <PdfSectionTitle>LABOR</PdfSectionTitle>
-            <ItemTable items={labor} showDimensions={false} />
-          </div>
-        )}
 
         <div
           style={{

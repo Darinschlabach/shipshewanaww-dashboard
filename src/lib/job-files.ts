@@ -47,6 +47,38 @@ export async function ensureJobSharePointFolder(jobId: string): Promise<{
   }
 }
 
+export async function renameJobSharePointFolderClient(opts: {
+  jobId: string;
+  jobName: string;
+}): Promise<{ ok: boolean; error: string | null }> {
+  try {
+    const res = await fetch(
+      `/api/jobs/${encodeURIComponent(opts.jobId)}/sharepoint/rename-folder`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ jobName: opts.jobName }),
+      }
+    );
+    const json = (await res.json()) as { ok?: boolean; error?: string };
+    if (!res.ok || json.ok === false) {
+      return {
+        ok: false,
+        error: json.error ?? "Could not rename SharePoint folder.",
+      };
+    }
+    return { ok: true, error: null };
+  } catch (err) {
+    return {
+      ok: false,
+      error:
+        err instanceof Error
+          ? err.message
+          : "Could not rename SharePoint folder.",
+    };
+  }
+}
+
 export async function convertQuoteSharePointToJobClient(opts: {
   quoteId: string;
   jobId: string;
