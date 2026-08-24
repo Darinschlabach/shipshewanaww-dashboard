@@ -81,7 +81,7 @@ import {
   getEventDisplayDescription,
   getEventHeightPercent,
   getEventTopPercent,
-  hexToRgba,
+  customCategoryChipStyle,
   isShopClosedEvent,
   MONTH_DAY_HEADERS,
   parseCustomCategoryDescription,
@@ -525,8 +525,6 @@ function CalendarToolsPanel({
   customFilters,
   onToggle,
   onToggleCustom,
-  showOnlyStartDates,
-  onToggleStartDates,
   onOpenCategories,
 }: {
   scope: CalendarScope;
@@ -535,8 +533,6 @@ function CalendarToolsPanel({
   customFilters: Record<string, boolean>;
   onToggle: (category: CalendarCategory) => void;
   onToggleCustom: (categoryId: string) => void;
-  showOnlyStartDates: boolean;
-  onToggleStartDates: () => void;
   onOpenCategories: () => void;
 }) {
   const builtInCategories =
@@ -560,6 +556,14 @@ function CalendarToolsPanel({
         onToggle: () => void;
       };
 
+  const builtinCheckedClassName: Partial<Record<CalendarCategory, string>> = {
+    production: "border-black bg-red-200 text-red-950",
+    finishing: "border-black bg-blue-200 text-blue-950",
+    deliveries: "border-black bg-green-200 text-green-950",
+    shop_closed: "border-black bg-gray-200 text-gray-900",
+    meetings: "border-black bg-red-200 text-red-950",
+  };
+
   const toolItems: ToolCategoryItem[] = [
     ...builtInCategories.map((category) => ({
       kind: "builtin" as const,
@@ -567,9 +571,8 @@ function CalendarToolsPanel({
       label: category.label,
       checked: filters[category.id] ?? true,
       checkedClassName:
-        scope === "personal"
-          ? `${category.dot} border-transparent text-white`
-          : "border-gray-900 bg-gray-900 text-white",
+        builtinCheckedClassName[category.id] ??
+        `${category.dot} border-black text-white`,
       onToggle: () => onToggle(category.id),
     })),
     ...customCategories.map((category) => ({
@@ -577,7 +580,7 @@ function CalendarToolsPanel({
       id: category.id,
       label: category.label,
       checked: customFilters[category.id] ?? true,
-      checkedStyle: { backgroundColor: category.color },
+      checkedStyle: customCategoryChipStyle(category.color),
       onToggle: () => onToggleCustom(category.id),
     })),
   ];
@@ -617,7 +620,7 @@ function CalendarToolsPanel({
                       <CategoryCheckboxRow
                         label={item.label}
                         checked={item.checked}
-                        checkedClassName="border-transparent text-white"
+                        checkedClassName="border-black"
                         checkedStyle={item.checkedStyle}
                         onToggle={item.onToggle}
                       />
@@ -639,7 +642,7 @@ function CalendarToolsPanel({
                       <CategoryCheckboxRow
                         label={item.label}
                         checked={item.checked}
-                        checkedClassName="border-transparent text-white"
+                        checkedClassName="border-black"
                         checkedStyle={item.checkedStyle}
                         onToggle={item.onToggle}
                       />
@@ -650,27 +653,7 @@ function CalendarToolsPanel({
             </>
           )}
         </div>
-        <div className="mt-4 flex items-center justify-between gap-3 border-t border-gray-100 pt-3">
-          {scope === "production" ? (
-            <button
-              type="button"
-              onClick={onToggleStartDates}
-              className="flex min-w-0 flex-1 items-center gap-2 text-left"
-            >
-              <span
-                className={`flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-sm border ${
-                  showOnlyStartDates
-                    ? "border-burgundy bg-burgundy text-white"
-                    : "border-gray-300 bg-white"
-                }`}
-              >
-                {showOnlyStartDates ? <IconCheck size={10} stroke={3} /> : null}
-              </span>
-              <span className="text-xs text-gray-600">Show only Start Dates</span>
-            </button>
-          ) : (
-            <div className="min-w-0 flex-1" />
-          )}
+        <div className="mt-4 flex items-center justify-end gap-3 border-t border-gray-100 pt-3">
           <button
             type="button"
             onClick={onOpenCategories}
@@ -715,20 +698,14 @@ function EventBlock({
 }) {
   const custom = resolveCustomCategory(event, customCategories);
   const styles = getCategoryStyles(event.category);
-  const customStyle = custom
-    ? {
-        backgroundColor: hexToRgba(custom.color, 0.12),
-        borderLeftColor: custom.color,
-        color: custom.color,
-      }
-    : undefined;
+  const customStyle = custom ? customCategoryChipStyle(custom.color) : undefined;
 
   return (
     <button
       type="button"
       onClick={onSelect}
-      className={`block w-full rounded-md border-l-4 px-2 py-1.5 text-left transition-shadow ${
-        custom ? "border-l-transparent" : `${styles.bg} ${styles.border}`
+      className={`block w-full rounded-md px-2 py-1.5 text-left transition-shadow ${
+        custom ? "border border-black" : `border-l-4 ${styles.bg} ${styles.border}`
       } ${selected ? "ring-2 ring-burgundy ring-offset-1" : "hover:opacity-90"} ${
         compact ? "truncate" : ""
       }`}
@@ -798,18 +775,12 @@ function DatePreviewEventRow({
 
   const custom = resolveCustomCategory(event, customCategories);
   const styles = getCategoryStyles(event.category);
-  const customStyle = custom
-    ? {
-        backgroundColor: hexToRgba(custom.color, 0.12),
-        borderLeftColor: custom.color,
-        color: custom.color,
-      }
-    : undefined;
+  const customStyle = custom ? customCategoryChipStyle(custom.color) : undefined;
 
   return (
     <div
-      className={`relative flex items-start gap-2 rounded-md border-l-4 px-2 py-1.5 ${
-        custom ? "border-l-transparent" : `${styles.bg} ${styles.border}`
+      className={`relative flex items-start gap-2 rounded-md px-2 py-1.5 ${
+        custom ? "border border-black" : `border-l-4 ${styles.bg} ${styles.border}`
       } ${selected ? "ring-2 ring-burgundy ring-offset-1" : ""}`}
       style={customStyle}
     >
@@ -910,20 +881,14 @@ function EventViewModal({
   const styles = getCategoryStyles(event.category);
   const eventDate = new Date(`${event.event_date}T12:00:00`);
   const categoryLabel = custom?.label ?? styles.label;
-  const headerStyle = custom
-    ? {
-        backgroundColor: hexToRgba(custom.color, 0.12),
-        borderLeftColor: custom.color,
-        color: custom.color,
-      }
-    : undefined;
+  const headerStyle = custom ? customCategoryChipStyle(custom.color) : undefined;
 
   return (
     <Modal title="Event details" className="w-full max-w-md" onClose={onClose}>
       <div className="space-y-5">
         <div
-          className={`rounded-md border-l-4 px-3 py-2.5 ${
-            custom ? "border-l-transparent" : `${styles.bg} ${styles.border}`
+          className={`rounded-md px-3 py-2.5 ${
+            custom ? "border border-black" : `border-l-4 ${styles.bg} ${styles.border}`
           }`}
           style={headerStyle}
         >
@@ -1420,7 +1385,6 @@ export default function CalendarPage() {
     Record<string, boolean>
   >({});
   const [customCategoriesReady, setCustomCategoriesReady] = useState(false);
-  const [showOnlyStartDates, setShowOnlyStartDates] = useState(false);
   const [showCategoriesModal, setShowCategoriesModal] = useState(false);
   const [isCalendarFullscreen, setIsCalendarFullscreen] = useState(false);
   const [isNativeFullscreen, setIsNativeFullscreen] = useState(false);
@@ -1720,14 +1684,16 @@ export default function CalendarPage() {
         } else if (!eventMatchesFilters(event, activeCategoryFilters)) {
           return false;
         }
-        if (calendarScope !== "production" || !showOnlyStartDates) return true;
-        return isScheduleStartOrDeliveryEvent(event);
+        if (calendarScope === "production") {
+          const scheduleMeta = parseScheduleBubbleDescription(event.description);
+          if (scheduleMeta) return isScheduleStartOrDeliveryEvent(event);
+        }
+        return true;
       }),
     [
       visibleEvents,
       activeCategoryFilters,
       customCategoryFilters,
-      showOnlyStartDates,
       calendarScope,
     ]
   );
@@ -2934,8 +2900,6 @@ export default function CalendarPage() {
             customFilters={customCategoryFilters}
             onToggle={toggleCategoryFilter}
             onToggleCustom={toggleCustomCategoryFilter}
-            showOnlyStartDates={showOnlyStartDates}
-            onToggleStartDates={() => setShowOnlyStartDates((prev) => !prev)}
             onOpenCategories={openCategoriesModal}
           />
         </div>

@@ -1,8 +1,4 @@
-import {
-  getScheduleColorClasses,
-  type ScheduleBubble,
-  type ScheduleColor,
-} from "@/lib/schedule-phase-drag";
+import { type ScheduleBubble, type ScheduleColor } from "@/lib/schedule-phase-drag";
 
 export function scheduleBubbleFromMeta(
   title: string,
@@ -15,32 +11,30 @@ export function scheduleBubbleFromMeta(
   };
 }
 
+const PHASE_CHIP_STYLES = {
+  fabricating: {
+    bg: "bg-red-200",
+    text: "text-red-950",
+  },
+  finishing: {
+    bg: "bg-blue-200",
+    text: "text-blue-950",
+  },
+  delivery: {
+    bg: "bg-green-200",
+    text: "text-green-950",
+  },
+} as const;
+
 export default function ScheduleBubbleChip({
   bubble,
-  color,
   size = "sm",
 }: {
   bubble: ScheduleBubble;
-  color: ScheduleColor;
+  color?: ScheduleColor;
   size?: "sm" | "md";
 }) {
-  const styles = getScheduleColorClasses(color);
-  const isDelivery = bubble.kind === "delivery";
-  const bottomStyles = isDelivery
-    ? { bg: "bg-green-500", text: "text-white" }
-    : bubble.kind === "fabricating"
-      ? {
-          bg: styles.bubbleFabricatingBg,
-          text: styles.bubbleFabricatingText,
-        }
-      : {
-          bg: styles.bubbleFinishingBg,
-          text: styles.bubbleFinishingText,
-        };
-  const topStyles = isDelivery
-    ? { bg: "bg-green-500", text: "text-white" }
-    : { bg: styles.bubbleTopBg, text: styles.bubbleTopText };
-  const borderClass = isDelivery ? "border-green-300" : styles.chipBorder;
+  const styles = PHASE_CHIP_STYLES[bubble.kind];
   const textClass =
     size === "md"
       ? "truncate text-center text-sm font-semibold leading-tight"
@@ -49,16 +43,10 @@ export default function ScheduleBubbleChip({
 
   return (
     <div
-      className={`pointer-events-none block w-full overflow-hidden rounded border ${borderClass}`}
+      className={`pointer-events-none block w-full overflow-hidden rounded border border-black ${padClass} ${styles.bg} ${styles.text}`}
     >
-      <div
-        className={`border-b border-black/15 ${padClass} ${topStyles.bg} ${topStyles.text}`}
-      >
-        <p className={textClass}>{bubble.jobName}</p>
-      </div>
-      <div className={`${padClass} ${bottomStyles.bg} ${bottomStyles.text}`}>
-        <p className={textClass}>{bubble.phaseLabel}</p>
-      </div>
+      <p className={textClass}>{bubble.jobName}</p>
+      <p className={textClass}>{bubble.phaseLabel}</p>
     </div>
   );
 }

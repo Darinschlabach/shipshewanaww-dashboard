@@ -144,7 +144,7 @@ export function getEventDisplayDescription(
   return description?.trim() ?? "";
 }
 
-export function hexToRgba(hex: string, alpha: number): string {
+function parseHexRgb(hex: string): [number, number, number] {
   const raw = hex.replace("#", "");
   const normalized =
     raw.length === 3
@@ -154,8 +154,29 @@ export function hexToRgba(hex: string, alpha: number): string {
           .join("")
       : raw;
   const value = Number.parseInt(normalized, 16);
-  if (Number.isNaN(value)) return `rgba(100, 100, 100, ${alpha})`;
-  return `rgba(${(value >> 16) & 255}, ${(value >> 8) & 255}, ${value & 255}, ${alpha})`;
+  if (Number.isNaN(value)) return [100, 100, 100];
+  return [(value >> 16) & 255, (value >> 8) & 255, value & 255];
+}
+
+export function hexToRgba(hex: string, alpha: number): string {
+  const [r, g, b] = parseHexRgb(hex);
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+}
+
+function mixChannel(channel: number, target: number, amount: number): number {
+  return Math.round(channel + (target - channel) * amount);
+}
+
+/** Light fill + dark text for custom-category chips (black border is applied in CSS). */
+export function customCategoryChipStyle(hex: string): {
+  backgroundColor: string;
+  color: string;
+} {
+  const [r, g, b] = parseHexRgb(hex);
+  return {
+    backgroundColor: `rgb(${mixChannel(r, 255, 0.72)}, ${mixChannel(g, 255, 0.72)}, ${mixChannel(b, 255, 0.72)})`,
+    color: `rgb(${mixChannel(r, 0, 0.55)}, ${mixChannel(g, 0, 0.55)}, ${mixChannel(b, 0, 0.55)})`,
+  };
 }
 
 export const CALENDAR_LEGEND = [

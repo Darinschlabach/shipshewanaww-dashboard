@@ -373,7 +373,7 @@ export default function JobsPage() {
                     [
                       ["customer", "Customer"],
                       ["stage", "Stage"],
-                      ["due", "Due"],
+                      ["due", "Delivery Date"],
                       ["value", "Value"],
                       ["updated", "Updated"],
                     ] as const
@@ -420,7 +420,7 @@ export default function JobsPage() {
                   )}
                   {visibleColumns.due && (
                     <th className="px-4 py-3 text-xs font-medium uppercase tracking-wide text-gray-500">
-                      Due
+                      Delivery Date
                     </th>
                   )}
                   {visibleColumns.value && (
@@ -576,7 +576,7 @@ export default function JobsPage() {
               />
             </div>
             <div>
-              <label className="mb-1 block text-sm font-medium">Due date</label>
+              <label className="mb-1 block text-sm font-medium">Delivery date</label>
               <input
                 type="date"
                 value={form.due_date}

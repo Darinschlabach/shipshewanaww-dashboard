@@ -171,34 +171,12 @@ function parseScheduleIso(iso: string) {
   return new Date(iso + "T12:00:00");
 }
 
-function addScheduleDays(date: Date, days: number) {
-  const next = new Date(date);
-  next.setDate(next.getDate() + days);
-  return next;
-}
-
 function isScheduleWeekday(date: Date) {
   const day = date.getDay();
   return day !== 0 && day !== 6;
 }
 
-function formatScheduleDateKey(date: Date) {
-  const y = date.getFullYear();
-  const m = String(date.getMonth() + 1).padStart(2, "0");
-  const d = String(date.getDate()).padStart(2, "0");
-  return `${y}-${m}-${d}`;
-}
-
-function iterateScheduleWeekdays(from: Date, to: Date, onDay: (date: Date) => void) {
-  if (to < from) return;
-  let current = new Date(from);
-  while (current <= to) {
-    if (isScheduleWeekday(current)) onDay(new Date(current));
-    current = addScheduleDays(current, 1);
-  }
-}
-
-/** Weekday-only schedule bubbles connecting fabricating → finishing → delivery. */
+/** One bubble per phase start: fabricating, finishing, and delivery. */
 export function buildJobScheduleBubbles(
   jobName: string,
   phaseDates: PhaseDates
@@ -212,51 +190,9 @@ export function buildJobScheduleBubbles(
     }
   }
 
-  if (fabricating) {
-    setBubble(fabricating, "Fabricating Start", "fabricating");
-    if (finishing) {
-      const fabStart = parseScheduleIso(fabricating);
-      const finStart = parseScheduleIso(finishing);
-      if (finStart > fabStart) {
-        iterateScheduleWeekdays(
-          addScheduleDays(fabStart, 1),
-          addScheduleDays(finStart, -1),
-          (date) => {
-            bubbles.set(formatScheduleDateKey(date), {
-              jobName,
-              phaseLabel: "Fabricating",
-              kind: "fabricating",
-            });
-          }
-        );
-      }
-    }
-  }
-
-  if (finishing) {
-    setBubble(finishing, "Finishing Start", "finishing");
-    if (delivery) {
-      const finStart = parseScheduleIso(finishing);
-      const deliveryDay = parseScheduleIso(delivery);
-      if (deliveryDay > finStart) {
-        iterateScheduleWeekdays(
-          addScheduleDays(finStart, 1),
-          addScheduleDays(deliveryDay, -1),
-          (date) => {
-            bubbles.set(formatScheduleDateKey(date), {
-              jobName,
-              phaseLabel: "Finishing",
-              kind: "finishing",
-            });
-          }
-        );
-      }
-    }
-  }
-
-  if (delivery) {
-    setBubble(delivery, "Delivery", "delivery");
-  }
+  if (fabricating) setBubble(fabricating, "Fabricating Start", "fabricating");
+  if (finishing) setBubble(finishing, "Finishing Start", "finishing");
+  if (delivery) setBubble(delivery, "Delivery", "delivery");
 
   return bubbles;
 }

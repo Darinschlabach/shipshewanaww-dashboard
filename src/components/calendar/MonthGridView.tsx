@@ -11,7 +11,7 @@ import {
   formatDateKey,
   formatEventStartTime,
   getCategoryStyles,
-  hexToRgba,
+  customCategoryChipStyle,
   isShopClosedEvent,
   parseCustomCategoryDescription,
   type CustomCalendarCategory,
@@ -122,12 +122,10 @@ function MonthEventChip({
   const custom = customMeta
     ? customCategories.find((category) => category.id === customMeta.category_id)
     : null;
-  const customStyle = custom
-    ? {
-        backgroundColor: hexToRgba(custom.color, 0.12),
-        color: custom.color,
-      }
-    : undefined;
+  const customStyle = custom ? customCategoryChipStyle(custom.color) : undefined;
+  const subtitle = custom?.label ?? timeLabel ?? styles.label;
+  const textClass =
+    "truncate text-center text-[8px] font-semibold leading-tight";
 
   return (
     <button
@@ -136,29 +134,13 @@ function MonthEventChip({
         e.stopPropagation();
         onSelect();
       }}
-      className={`pointer-events-auto block w-full rounded px-1 py-1.5 text-left ${
-        custom ? "" : styles.bg
+      className={`pointer-events-auto block w-full overflow-hidden rounded border px-1 py-[1px] ${
+        custom ? "border-black" : `${styles.bg} border-transparent`
       } ${selected ? "ring-1 ring-burgundy/40 ring-inset" : "hover:brightness-[0.98]"}`}
       style={customStyle}
     >
-      <div className="flex items-center gap-1">
-        <p
-          className={`min-w-0 flex-1 truncate text-[10px] font-semibold leading-tight ${
-            custom ? "" : styles.text
-          }`}
-        >
-          {event.title}
-        </p>
-        {timeLabel ? (
-          <span
-            className={`shrink-0 text-[9px] leading-tight ${
-              custom ? "opacity-80" : styles.muted
-            }`}
-          >
-            {timeLabel}
-          </span>
-        ) : null}
-      </div>
+      <p className={`${textClass} ${custom ? "" : styles.text}`}>{event.title}</p>
+      <p className={`${textClass} ${custom ? "" : styles.text}`}>{subtitle}</p>
     </button>
   );
 }
@@ -472,25 +454,31 @@ export default function MonthGridView({
               {dayBirthdays.map((item, idx) => (
                 <div
                   key={`${dateStr}-bday-${idx}`}
-                  className="flex items-center justify-center gap-1 rounded border border-burgundy/20 bg-burgundy/5 px-1 py-[1px] text-[9px] font-semibold text-burgundy"
+                  className="flex flex-col items-center justify-center overflow-hidden rounded border border-burgundy/40 bg-burgundy/10 px-1 py-[1px] text-burgundy"
                 >
-                  <IconConfetti size={10} />
-                  <span className="truncate">
-                    {`${item.firstName}'s Birthday (${item.age})`}
-                  </span>
-                  <IconConfetti size={10} />
+                  <p className="flex w-full items-center justify-center gap-0.5 truncate text-center text-[8px] font-semibold leading-tight">
+                    <IconConfetti size={8} className="shrink-0" />
+                    <span className="truncate">{`${item.firstName}'s Birthday`}</span>
+                    <IconConfetti size={8} className="shrink-0" />
+                  </p>
+                  <p className="truncate text-center text-[8px] font-semibold leading-tight">
+                    {`(${item.age})`}
+                  </p>
                 </div>
               ))}
               {overflowBirthdays.map((item, idx) => (
                 <div
                   key={`${overflowStr}-bday-${idx}`}
-                  className="flex items-center justify-center gap-1 rounded border border-burgundy/20 bg-burgundy/5 px-1 py-[1px] text-[9px] font-semibold text-burgundy"
+                  className="flex flex-col items-center justify-center overflow-hidden rounded border border-burgundy/40 bg-burgundy/10 px-1 py-[1px] text-burgundy"
                 >
-                  <IconConfetti size={10} />
-                  <span className="truncate">
-                    {`${item.firstName}'s Birthday (${item.age})`}
-                  </span>
-                  <IconConfetti size={10} />
+                  <p className="flex w-full items-center justify-center gap-0.5 truncate text-center text-[8px] font-semibold leading-tight">
+                    <IconConfetti size={8} className="shrink-0" />
+                    <span className="truncate">{`${item.firstName}'s Birthday`}</span>
+                    <IconConfetti size={8} className="shrink-0" />
+                  </p>
+                  <p className="truncate text-center text-[8px] font-semibold leading-tight">
+                    {`(${item.age})`}
+                  </p>
                 </div>
               ))}
               {scheduleMode && overflowScheduleBubble ? (

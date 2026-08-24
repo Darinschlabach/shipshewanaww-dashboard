@@ -133,6 +133,24 @@ export async function saveJobSchedule(
     return { error: scheduleError.message };
   }
 
+  // Keep jobs / production board delivery date in sync with the schedule.
+  const { error: jobDueError } = await supabase
+    .from("jobs")
+    .update({
+      due_date: phaseDates.delivery,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", jobId);
+
+  if (jobDueError) {
+    return { error: jobDueError.message };
+  }
+
+  await supabase
+    .from("production_jobs")
+    .update({ due_date: phaseDates.delivery })
+    .eq("job_id", jobId);
+
   const { data: existingEvents, error: loadEventsError } = await supabase
     .from("calendar_events")
     .select("id, description")
