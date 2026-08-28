@@ -17,36 +17,43 @@ interface InvoicePdfDocumentProps {
   downPaymentPercent?: number | null;
 }
 
-const PROJECT_SUMMARY_ROW_COUNT = 10;
+const PROJECT_SUMMARY_MAX_ROWS = 20;
 const SUMMARY_COL_WIDTHS = ["12%", "68%", "20%"] as const;
+const SUMMARY_ROW_HEIGHT = 19;
 
 const itemCellStyle = {
   borderLeft: "1px solid #d4d4d4",
   borderRight: "1px solid #d4d4d4",
   borderTop: "none",
   borderBottom: "none",
-  padding: "6px 10px",
+  padding: "2px 8px",
+  fontSize: 11,
+  lineHeight: 1.25,
+  height: SUMMARY_ROW_HEIGHT,
+  verticalAlign: "middle" as const,
+  boxSizing: "border-box" as const,
+  overflow: "hidden" as const,
 } as const;
 
 const totalsLabelCellStyle = {
   border: "1px solid #d4d4d4",
-  padding: "8px 10px",
+  padding: "6px 8px",
   fontWeight: 700,
   whiteSpace: "nowrap" as const,
   verticalAlign: "middle" as const,
   textAlign: "left" as const,
-  fontSize: 13,
+  fontSize: 12,
   boxSizing: "border-box" as const,
 };
 
 const totalsValueCellStyle = {
   border: "1px solid #d4d4d4",
-  padding: "8px 10px",
+  padding: "6px 8px",
   textAlign: "right" as const,
   fontVariantNumeric: "tabular-nums" as const,
   verticalAlign: "middle" as const,
   whiteSpace: "nowrap" as const,
-  fontSize: 13,
+  fontSize: 12,
   boxSizing: "border-box" as const,
 };
 
@@ -103,14 +110,14 @@ function InvoicePdfSummaryPage({
   const balanceDueUponDelivery =
     downPayment != null ? Math.max(0, total - downPayment) : null;
   const dueLabel = isAdvance ? "ADVANCE PAYMENT" : "BALANCE DUE";
-  const projectRows = data.rooms;
+  const projectRows = data.rooms.slice(0, PROJECT_SUMMARY_MAX_ROWS);
   const summaryRows = [
     ...projectRows.map((room) => ({
       key: room.id,
       room,
     })),
     ...Array.from(
-      { length: Math.max(0, PROJECT_SUMMARY_ROW_COUNT - projectRows.length) },
+      { length: Math.max(0, PROJECT_SUMMARY_MAX_ROWS - projectRows.length) },
       (_, index) => ({
         key: `blank-${projectRows.length + index + 1}`,
         room: null as (typeof projectRows)[number] | null,
@@ -323,17 +330,17 @@ function InvoicePdfSummaryPage({
           flex: 1,
           display: "flex",
           flexDirection: "column",
-          marginTop: 14,
+          marginTop: 10,
           marginBottom: 0,
           minHeight: 0,
         }}
       >
         <p
           style={{
-            margin: "0 0 8px",
+            margin: "0 0 6px",
             color: "#8e7641",
             fontWeight: 700,
-            fontSize: 13,
+            fontSize: 12,
             flexShrink: 0,
           }}
         >
@@ -341,7 +348,7 @@ function InvoicePdfSummaryPage({
         </p>
         <div
           style={{
-            flex: 1,
+            flex: projectRows.length >= 14 ? "0 0 auto" : 1,
             display: "flex",
             flexDirection: "column",
             minHeight: 0,
@@ -351,7 +358,7 @@ function InvoicePdfSummaryPage({
             style={{
               width: "100%",
               borderCollapse: "collapse",
-              fontSize: 13,
+              fontSize: 11,
               tableLayout: "fixed",
               flexShrink: 0,
             }}
@@ -374,9 +381,9 @@ function InvoicePdfSummaryPage({
                     key={title}
                     style={{
                       textAlign: align,
-                      padding: "8px 10px",
+                      padding: "5px 8px",
                       border: "1px solid #6a7178",
-                      fontSize: 12,
+                      fontSize: 11,
                     }}
                   >
                     {title}
@@ -418,21 +425,23 @@ function InvoicePdfSummaryPage({
               )}
             </tbody>
           </table>
-          <div
-            style={{
-              flex: 1,
-              display: "grid",
-              gridTemplateColumns: SUMMARY_COL_WIDTHS.join(" "),
-              minHeight: 24,
-              borderLeft: "1px solid #d4d4d4",
-              borderRight: "1px solid #d4d4d4",
-              borderBottom: "1px solid #d4d4d4",
-            }}
-          >
-            <div style={{ borderRight: "1px solid #d4d4d4" }} />
-            <div style={{ borderRight: "1px solid #d4d4d4" }} />
-            <div />
-          </div>
+          {projectRows.length < 14 ? (
+            <div
+              style={{
+                flex: 1,
+                display: "grid",
+                gridTemplateColumns: SUMMARY_COL_WIDTHS.join(" "),
+                minHeight: 12,
+                borderLeft: "1px solid #d4d4d4",
+                borderRight: "1px solid #d4d4d4",
+                borderBottom: "1px solid #d4d4d4",
+              }}
+            >
+              <div style={{ borderRight: "1px solid #d4d4d4" }} />
+              <div style={{ borderRight: "1px solid #d4d4d4" }} />
+              <div />
+            </div>
+          ) : null}
         </div>
 
         <div
@@ -595,16 +604,16 @@ function InvoicePdfSummaryPage({
               background: "#8e7641",
               color: "#fff",
               border: "1px solid #8e7641",
-              padding: "8px 10px",
+              padding: "6px 8px",
               fontWeight: 700,
-              fontSize: 20,
+              fontSize: 18,
               lineHeight: 1,
               textAlign: "left",
               whiteSpace: "nowrap",
               display: "flex",
               alignItems: "center",
               justifyContent: "flex-start",
-              minHeight: 44,
+              minHeight: 38,
               boxSizing: "border-box",
             }}
           >
@@ -617,9 +626,9 @@ function InvoicePdfSummaryPage({
               background: "#8e7641",
               color: "#fff",
               border: "1px solid #8e7641",
-              padding: "8px 10px",
+              padding: "6px 8px",
               fontWeight: 700,
-              fontSize: 20,
+              fontSize: 18,
               lineHeight: 1,
               textAlign: "right",
               fontVariantNumeric: "tabular-nums",
@@ -627,7 +636,7 @@ function InvoicePdfSummaryPage({
               display: "flex",
               alignItems: "center",
               justifyContent: "flex-end",
-              minHeight: 44,
+              minHeight: 38,
               boxSizing: "border-box",
             }}
           >
