@@ -1,4 +1,5 @@
 import { jsonError, jsonOk, requireApiUser } from "@/lib/api-auth";
+import { invoiceDueDateFromIssueDate } from "@/lib/invoices";
 import {
   recalculateInvoiceBalance,
   replaceInvoiceLineItems,
@@ -45,7 +46,7 @@ export async function POST(request: Request) {
       customer_id: body.customer_id || null,
       customer_name: body.customer_name.trim(),
       invoice_date: invoiceDate,
-      due_date: body.due_date || null,
+      due_date: body.due_date || invoiceDueDateFromIssueDate(invoiceDate),
       amount: Number(body.amount) || 0,
       balance: Number(body.amount) || 0,
       status: body.status || "open",

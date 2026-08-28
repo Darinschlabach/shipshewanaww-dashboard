@@ -14,6 +14,7 @@ import {
   formatInvoiceNumber,
   getInvoiceDetailPath,
   nextInvoiceNumber,
+  invoiceDueDateFromIssueDate,
   type InvoiceRow,
   type InvoiceStatus,
 } from "@/lib/invoices";
@@ -132,6 +133,7 @@ export default function JobFinancialsInvoices({ jobId }: JobFinancialsInvoicesPr
         .maybeSingle()).data?.name ??
       "Unknown Customer";
 
+    const invoiceDate = new Date().toISOString().slice(0, 10);
     const res = await fetch("/api/invoices", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -140,8 +142,8 @@ export default function JobFinancialsInvoices({ jobId }: JobFinancialsInvoicesPr
         job_id: jobId,
         customer_id: job.customer_id,
         customer_name: customerName,
-        invoice_date: new Date().toISOString().slice(0, 10),
-        due_date: job.due_date ?? null,
+        invoice_date: invoiceDate,
+        due_date: invoiceDueDateFromIssueDate(invoiceDate),
         amount: 0,
         status: "open",
       }),

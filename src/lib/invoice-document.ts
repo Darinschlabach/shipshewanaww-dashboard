@@ -2,7 +2,7 @@ import type {
   InvoiceDetailMeta,
   InvoiceDetailRow,
 } from "@/lib/invoice-detail";
-import { formatInvoiceNumber, isSyntheticInvoiceId } from "@/lib/invoices";
+import { formatInvoiceNumber, invoiceDueDateFromIssueDate, isSyntheticInvoiceId } from "@/lib/invoices";
 import type { QuoteDocumentData, QuoteDocumentRoom } from "@/lib/quote-document";
 import { createClient } from "@/lib/supabase/client";
 
@@ -54,7 +54,7 @@ export function buildInvoiceDocumentData(
   const invoiceDate =
     invoice.invoice_date?.slice(0, 10) ||
     invoice.created_at.slice(0, 10);
-  const dueDate = invoice.due_date?.slice(0, 10) || invoiceDate;
+  const dueDate = invoiceDueDateFromIssueDate(invoiceDate);
 
   const rooms = lineItemsToRooms(lineItems);
   const roomsTotal = rooms.reduce((sum, room) => sum + room.roomTotal, 0);

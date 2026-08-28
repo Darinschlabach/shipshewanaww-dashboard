@@ -96,6 +96,17 @@ export function nextInvoiceNumber(invoices: Invoice[]): string {
   return `INV-${next}`;
 }
 
+/** Net 30: due date is 30 calendar days after the invoice date. */
+export function invoiceDueDateFromIssueDate(invoiceDate: string): string {
+  const date = new Date(`${invoiceDate.slice(0, 10)}T12:00:00`);
+  if (Number.isNaN(date.getTime())) return invoiceDate.slice(0, 10);
+  date.setDate(date.getDate() + 30);
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
 export function computeInvoiceStatus(
   balance: number,
   dueDate: string | null,
@@ -131,7 +142,8 @@ export function buildInvoicesFromJobs(
       );
       const invoiceDate =
         job.quote_approved_at ?? job.created_at.slice(0, 10);
-      const status = computeInvoiceStatus(balance, job.due_date);
+      const dueDate = invoiceDueDateFromIssueDate(invoiceDate);
+      const status = computeInvoiceStatus(balance, dueDate);
       return {
         id: `job-${job.id}`,
         invoice_number: `INV-${24001 + index}`,
@@ -139,7 +151,7 @@ export function buildInvoicesFromJobs(
         customer_id: job.customer_id,
         customer_name: job.contacts?.name ?? "Unknown Customer",
         invoice_date: invoiceDate,
-        due_date: job.due_date,
+        due_date: dueDate,
         amount: Number(job.total_value),
         balance,
         status,

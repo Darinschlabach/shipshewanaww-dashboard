@@ -24,6 +24,7 @@ import {
   formatInvoiceNumber,
   getInvoiceDetailPath,
   invoiceOutstandingTotal,
+  invoiceDueDateFromIssueDate,
   isSyntheticInvoiceId,
   nextInvoiceNumber,
   type InvoiceRow,
@@ -226,7 +227,8 @@ export default function InvoicesPage() {
     let customerId: string | null = null;
     let customerName = "Unknown Customer";
     const amount = 0;
-    const dueDate: string | null = null;
+    const invoiceDate = new Date().toISOString().slice(0, 10);
+    const dueDate = invoiceDueDateFromIssueDate(invoiceDate);
 
     if (invoiceType === "job") {
       const job = jobs.find((j) => j.id === form.job_id);
@@ -260,7 +262,7 @@ export default function InvoicesPage() {
         job_id: jobId,
         customer_id: customerId,
         customer_name: customerName,
-        invoice_date: new Date().toISOString().slice(0, 10),
+        invoice_date: invoiceDate,
         due_date: dueDate,
         amount,
         status: "open",
