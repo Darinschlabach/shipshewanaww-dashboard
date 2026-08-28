@@ -19,20 +19,20 @@ interface InvoicePdfDocumentProps {
 
 const PROJECT_SUMMARY_MAX_ROWS = 20;
 const SUMMARY_COL_WIDTHS = ["12%", "68%", "20%"] as const;
-const SUMMARY_ROW_HEIGHT = 19;
 
 const itemCellStyle = {
   borderLeft: "1px solid #d4d4d4",
   borderRight: "1px solid #d4d4d4",
   borderTop: "none",
   borderBottom: "none",
-  padding: "2px 8px",
+  padding: "0 8px",
   fontSize: 11,
-  lineHeight: 1.25,
-  height: SUMMARY_ROW_HEIGHT,
-  verticalAlign: "middle" as const,
+  lineHeight: "14px",
+  display: "flex",
+  alignItems: "center",
+  minHeight: 0,
   boxSizing: "border-box" as const,
-  overflow: "hidden" as const,
+  overflow: "visible" as const,
 } as const;
 
 const totalsLabelCellStyle = {
@@ -134,7 +134,7 @@ function InvoicePdfSummaryPage({
         height: PDF_PAGE_HEIGHT_PX,
         minHeight: PDF_PAGE_HEIGHT_PX,
         maxHeight: PDF_PAGE_HEIGHT_PX,
-        padding: "26px 34px 16px",
+        padding: "22px 34px 12px",
         boxSizing: "border-box",
         fontFamily: "Arial, Helvetica, sans-serif",
         color: PDF_BAR_COLOR,
@@ -151,7 +151,8 @@ function InvoicePdfSummaryPage({
           gap: 16,
           alignItems: "start",
           borderBottom: "1px solid #b9b9b9",
-          paddingBottom: 12,
+          paddingBottom: 8,
+          flexShrink: 0,
         }}
       >
         <div style={{ marginLeft: "-18px", transform: "translate(30px, -5px)" }}>
@@ -261,12 +262,13 @@ function InvoicePdfSummaryPage({
 
       <section
         style={{
-          marginTop: 14,
+          marginTop: 10,
           display: "grid",
           gridTemplateColumns: "1fr 1fr",
           gap: 16,
           borderBottom: "1px solid #b9b9b9",
-          paddingBottom: 12,
+          paddingBottom: 8,
+          flexShrink: 0,
         }}
       >
         <div>
@@ -330,14 +332,14 @@ function InvoicePdfSummaryPage({
           flex: 1,
           display: "flex",
           flexDirection: "column",
-          marginTop: 10,
+          marginTop: 8,
           marginBottom: 0,
           minHeight: 0,
         }}
       >
         <p
           style={{
-            margin: "0 0 6px",
+            margin: "-3px 0 7px",
             color: "#8e7641",
             fontWeight: 700,
             fontSize: 12,
@@ -348,100 +350,72 @@ function InvoicePdfSummaryPage({
         </p>
         <div
           style={{
-            flex: projectRows.length >= 14 ? "0 0 auto" : 1,
-            display: "flex",
-            flexDirection: "column",
+            flex: 1,
             minHeight: 0,
+            display: "grid",
+            gridTemplateColumns: SUMMARY_COL_WIDTHS.join(" "),
+            gridTemplateRows: `24px repeat(${PROJECT_SUMMARY_MAX_ROWS}, minmax(0, 1fr))`,
+            borderBottom: "1px solid #d4d4d4",
           }}
         >
-          <table
-            style={{
-              width: "100%",
-              borderCollapse: "collapse",
-              fontSize: 11,
-              tableLayout: "fixed",
-              flexShrink: 0,
-            }}
-          >
-            <colgroup>
-              {SUMMARY_COL_WIDTHS.map((width) => (
-                <col key={width} style={{ width }} />
-              ))}
-            </colgroup>
-            <thead>
-              <tr style={{ background: PDF_BAR_COLOR, color: "#fff" }}>
-                {(
-                  [
-                    { title: "QTY", align: "left" as const },
-                    { title: "DESCRIPTION", align: "left" as const },
-                    { title: "TOTAL", align: "right" as const },
-                  ] as const
-                ).map(({ title, align }) => (
-                  <th
-                    key={title}
-                    style={{
-                      textAlign: align,
-                      padding: "5px 8px",
-                      border: "1px solid #6a7178",
-                      fontSize: 11,
-                    }}
-                  >
-                    {title}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {summaryRows.map(({ key, room }) =>
-                room ? (
-                  <tr key={key}>
-                    <td
-                      style={{
-                        ...itemCellStyle,
-                        fontVariantNumeric: "tabular-nums",
-                      }}
-                    >
-                      {room.itemCount}
-                    </td>
-                    <td style={itemCellStyle}>{safeValue(room.name)}</td>
-                    <td
-                      style={{
-                        ...itemCellStyle,
-                        textAlign: "right",
-                        whiteSpace: "nowrap",
-                        fontVariantNumeric: "tabular-nums",
-                      }}
-                    >
-                      {formatCurrencyPrecise(room.roomTotal)}
-                    </td>
-                  </tr>
-                ) : (
-                  <tr key={key}>
-                    <td style={itemCellStyle} />
-                    <td style={itemCellStyle} />
-                    <td style={itemCellStyle} />
-                  </tr>
-                )
-              )}
-            </tbody>
-          </table>
-          {projectRows.length < 14 ? (
+          {(
+            [
+              { title: "QTY", align: "left" as const },
+              { title: "DESCRIPTION", align: "left" as const },
+              { title: "TOTAL", align: "right" as const },
+            ] as const
+          ).map(({ title, align }) => (
             <div
+              key={title}
               style={{
-                flex: 1,
-                display: "grid",
-                gridTemplateColumns: SUMMARY_COL_WIDTHS.join(" "),
-                minHeight: 12,
-                borderLeft: "1px solid #d4d4d4",
-                borderRight: "1px solid #d4d4d4",
-                borderBottom: "1px solid #d4d4d4",
+                background: PDF_BAR_COLOR,
+                color: "#fff",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: align === "right" ? "flex-end" : "flex-start",
+                padding: "0 8px 6px",
+                border: "1px solid #6a7178",
+                fontSize: 11,
+                fontWeight: 700,
+                lineHeight: "14px",
               }}
             >
-              <div style={{ borderRight: "1px solid #d4d4d4" }} />
-              <div style={{ borderRight: "1px solid #d4d4d4" }} />
-              <div />
+              {title}
             </div>
-          ) : null}
+          ))}
+          {summaryRows.flatMap(({ key, room }) =>
+            room
+              ? [
+                  <div
+                    key={`${key}-qty`}
+                    style={{
+                      ...itemCellStyle,
+                      fontVariantNumeric: "tabular-nums",
+                    }}
+                  >
+                    {room.itemCount}
+                  </div>,
+                  <div key={`${key}-name`} style={itemCellStyle}>
+                    {safeValue(room.name)}
+                  </div>,
+                  <div
+                    key={`${key}-total`}
+                    style={{
+                      ...itemCellStyle,
+                      justifyContent: "flex-end",
+                      whiteSpace: "nowrap",
+                      fontVariantNumeric: "tabular-nums",
+                    }}
+                  >
+                    {formatCurrencyPrecise(room.roomTotal)}
+                  </div>,
+                ]
+              : [
+                  <div key={`${key}-qty`} style={itemCellStyle} />,
+                  <div key={`${key}-name`} style={itemCellStyle} />,
+                  <div key={`${key}-total`} style={itemCellStyle} />,
+                ]
+          )}
         </div>
 
         <div
@@ -460,7 +434,7 @@ function InvoicePdfSummaryPage({
               gridRow: "1 / 6",
               marginRight: 12,
               border: "1px solid #d4d4d4",
-              padding: "8px 10px",
+              padding: "6px 8px",
               boxSizing: "border-box",
               minWidth: 0,
               display: "flex",
@@ -469,7 +443,7 @@ function InvoicePdfSummaryPage({
           >
             <p
               style={{
-                margin: "0 0 8px",
+                margin: "0 0 4px",
                 color: "#8e7641",
                 fontWeight: 700,
                 fontSize: 13,
@@ -482,7 +456,7 @@ function InvoicePdfSummaryPage({
                 style={{
                   margin: 0,
                   fontSize: 12,
-                  lineHeight: 1.4,
+                  lineHeight: 1.3,
                   color: "#6b7280",
                 }}
               >
@@ -492,9 +466,8 @@ function InvoicePdfSummaryPage({
               <table
                 style={{
                   width: "100%",
-                  borderCollapse: "separate",
-                  borderSpacing: 0,
-                  fontSize: 11,
+                  borderCollapse: "collapse",
+                  fontSize: 10,
                 }}
               >
                 <thead>
@@ -509,11 +482,11 @@ function InvoicePdfSummaryPage({
                         key={title}
                         style={{
                           textAlign: align,
-                          padding: "0 5px 8px",
+                          padding: "0 4px 6px",
                           borderBottom: "1px solid #d4d4d4",
-                          fontSize: 10,
+                          fontSize: 9,
                           fontWeight: 700,
-                          lineHeight: 1.35,
+                          lineHeight: "12px",
                           verticalAlign: "bottom",
                           color: PDF_BAR_COLOR,
                           whiteSpace: "nowrap",
@@ -529,36 +502,40 @@ function InvoicePdfSummaryPage({
                     <tr key={payment.id}>
                       <td
                         style={{
-                          padding: "6px 5px 4px",
-                          verticalAlign: "top",
+                          padding: "1px 4px",
+                          verticalAlign: "middle",
                           whiteSpace: "nowrap",
+                          lineHeight: "13px",
                         }}
                       >
                         {formatDateLong(payment.paidAt)}
                       </td>
                       <td
                         style={{
-                          padding: "6px 5px 4px",
-                          verticalAlign: "top",
+                          padding: "1px 4px",
+                          verticalAlign: "middle",
+                          lineHeight: "13px",
                         }}
                       >
                         {payment.method}
                       </td>
                       <td
                         style={{
-                          padding: "6px 5px 4px",
-                          verticalAlign: "top",
+                          padding: "1px 4px",
+                          verticalAlign: "middle",
+                          lineHeight: "13px",
                         }}
                       >
                         {payment.reference}
                       </td>
                       <td
                         style={{
-                          padding: "6px 5px 4px",
-                          verticalAlign: "top",
+                          padding: "1px 4px",
+                          verticalAlign: "middle",
                           textAlign: "right",
                           whiteSpace: "nowrap",
                           fontVariantNumeric: "tabular-nums",
+                          lineHeight: "13px",
                         }}
                       >
                         {formatCurrencyPrecise(payment.amount)}
@@ -604,7 +581,7 @@ function InvoicePdfSummaryPage({
               background: "#8e7641",
               color: "#fff",
               border: "1px solid #8e7641",
-              padding: "6px 8px",
+              padding: "4px 8px 8px",
               fontWeight: 700,
               fontSize: 18,
               lineHeight: 1,
@@ -613,11 +590,11 @@ function InvoicePdfSummaryPage({
               display: "flex",
               alignItems: "center",
               justifyContent: "flex-start",
-              minHeight: 38,
+              minHeight: 32,
               boxSizing: "border-box",
             }}
           >
-            {dueLabel}
+            <span style={{ transform: "translateY(-3px)" }}>{dueLabel}</span>
           </div>
           <div
             style={{
@@ -626,7 +603,7 @@ function InvoicePdfSummaryPage({
               background: "#8e7641",
               color: "#fff",
               border: "1px solid #8e7641",
-              padding: "6px 8px",
+              padding: "4px 8px 8px",
               fontWeight: 700,
               fontSize: 18,
               lineHeight: 1,
@@ -636,11 +613,13 @@ function InvoicePdfSummaryPage({
               display: "flex",
               alignItems: "center",
               justifyContent: "flex-end",
-              minHeight: 38,
+              minHeight: 32,
               boxSizing: "border-box",
             }}
           >
-            {formatCurrencyPrecise(amountDue)}
+            <span style={{ transform: "translateY(-3px)" }}>
+              {formatCurrencyPrecise(amountDue)}
+            </span>
           </div>
           {balanceDueUponDelivery != null ? (
             <p

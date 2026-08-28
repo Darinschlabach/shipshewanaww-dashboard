@@ -75,13 +75,11 @@ function createPdfIframe(): {
   doc.open();
   doc.write(`<!DOCTYPE html>
 <html><head>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=UnifrakturMaguntia&display=swap" rel="stylesheet">
-<link href="https://fonts.googleapis.com/css2?family=Allura&family=Cinzel:wght@400;500;600&family=Great+Vibes&family=Monsieur+La+Doulaise&family=Qwitcher+Grypen:wght@400;700&family=Tangerine:wght@400;700&display=swap" rel="stylesheet">
 <style>
   * { box-sizing: border-box; }
-  body { margin: 0; padding: 0; background: #fff; }
+  body { margin: 0; padding: 0; background: #fff; font-family: Arial, Helvetica, sans-serif; }
+  table { border-collapse: collapse; }
+  td, th { overflow: visible; }
 </style>
 </head><body><div id="pdf-root"></div></body></html>`);
   doc.close();
@@ -106,10 +104,10 @@ async function renderPageWithMargins(pdf: jsPDF, pageEl: HTMLElement): Promise<v
     allowTaint: true,
     logging: false,
     backgroundColor: "#ffffff",
-    width: pageEl.scrollWidth,
-    height: pageEl.scrollHeight,
-    windowWidth: pageEl.scrollWidth,
-    windowHeight: pageEl.scrollHeight,
+    width: pageEl.offsetWidth,
+    height: pageEl.offsetHeight,
+    windowWidth: pageEl.offsetWidth,
+    windowHeight: pageEl.offsetHeight,
     scrollX: 0,
     scrollY: 0,
   });
@@ -117,29 +115,14 @@ async function renderPageWithMargins(pdf: jsPDF, pageEl: HTMLElement): Promise<v
   const imgData = canvas.toDataURL("image/jpeg", 0.92);
   const contentWidth = PAGE_WIDTH_IN - MARGIN_IN * 2;
   const contentHeight = PAGE_HEIGHT_IN - MARGIN_IN * 2;
-  let imgHeight = (canvas.height * contentWidth) / canvas.width;
-
-  if (imgHeight > contentHeight) {
-    const scale = contentHeight / imgHeight;
-    imgHeight = contentHeight;
-    pdf.addImage(
-      imgData,
-      "JPEG",
-      MARGIN_IN,
-      MARGIN_IN,
-      contentWidth * scale,
-      imgHeight
-    );
-  } else {
-    pdf.addImage(
-      imgData,
-      "JPEG",
-      MARGIN_IN,
-      MARGIN_IN,
-      contentWidth,
-      imgHeight
-    );
-  }
+  pdf.addImage(
+    imgData,
+    "JPEG",
+    MARGIN_IN,
+    MARGIN_IN,
+    contentWidth,
+    contentHeight
+  );
 }
 
 export async function downloadInvoicePdf(opts: {
@@ -183,8 +166,11 @@ export async function downloadInvoicePdf(opts: {
     });
 
     await waitForImages(frame.mount);
-    await frame.iframe.contentDocument?.fonts?.ready;
-    await new Promise((resolve) => setTimeout(resolve, 400));
+    await Promise.race([
+      frame.iframe.contentDocument?.fonts?.ready ?? Promise.resolve(),
+      new Promise<void>((resolve) => setTimeout(resolve, 1500)),
+    ]);
+    await new Promise((resolve) => setTimeout(resolve, 200));
 
     const pages = Array.from(
       frame.mount.querySelectorAll<HTMLElement>(".invoice-page")
