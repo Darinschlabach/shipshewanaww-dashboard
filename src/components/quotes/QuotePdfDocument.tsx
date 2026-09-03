@@ -64,7 +64,7 @@ function QuotePdfSummaryPage({
   const fullAmount = data.roomsTotal + data.servicesTotal;
   const subtotal = fullAmount;
   const tax = quoteSalesTax(subtotal, includeTax);
-  const total = subtotal + tax;
+  const total = Math.floor(subtotal + tax);
   const projectRows = data.rooms;
   const summaryRows = [
     ...projectRows.map((room, index) => ({
