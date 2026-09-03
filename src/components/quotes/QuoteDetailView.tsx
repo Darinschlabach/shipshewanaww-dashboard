@@ -93,7 +93,7 @@ export default function QuoteDetailView({
     return String(Number.isFinite(stored) && stored > 0 ? stored : 7);
   });
   const quotePreviewTotal =
-    displayTotal + quoteSalesTax(displayTotal, includeTax);
+    Math.floor(displayTotal + quoteSalesTax(displayTotal, includeTax));
   const [downloadingPdf, setDownloadingPdf] = useState(false);
   const [pdfError, setPdfError] = useState<string | null>(null);
   const [fileCount, setFileCount] = useState(0);

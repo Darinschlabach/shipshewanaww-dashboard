@@ -391,7 +391,7 @@ function InvoiceSummaryPanel({
   const subtotal = items.reduce((sum, item) => sum + item.qty * item.price, 0);
   const discount = 0;
   const tax = 0;
-  const total = subtotal - discount + tax;
+  const total = Math.floor(subtotal - discount + tax);
   const depositsReceived = Math.max(
     0,
     Number(invoice.amount) - Number(invoice.balance)
