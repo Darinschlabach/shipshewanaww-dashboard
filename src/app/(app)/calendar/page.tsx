@@ -1429,7 +1429,7 @@ export default function CalendarPage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const calendarContainerRef = useRef<HTMLDivElement>(null);
   const loadSeq = useRef(0);
-  const monthArrowHoverRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const monthArrowHoverRef = useRef<number | null>(null);
 
   function resetAttachment() {
     setAttachedFile(null);
