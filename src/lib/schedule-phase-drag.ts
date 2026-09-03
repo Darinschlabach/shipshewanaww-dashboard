@@ -176,6 +176,10 @@ function isScheduleWeekday(date: Date) {
   return day !== 0 && day !== 6;
 }
 
+export function isScheduleWeekdayKey(iso: string) {
+  return isScheduleWeekday(parseScheduleIso(iso));
+}
+
 /** One bubble per phase start: fabricating, finishing, and delivery. */
 export function buildJobScheduleBubbles(
   jobName: string,

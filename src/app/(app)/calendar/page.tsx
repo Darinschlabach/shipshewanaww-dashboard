@@ -7,11 +7,13 @@ import {
   useRef,
   useState,
   type CSSProperties,
+  type DragEvent,
 } from "react";
 import {
   IconAdjustmentsHorizontal,
   IconArrowsMaximize,
   IconArrowsMinimize,
+  IconArrowsMove,
   IconCheck,
   IconChevronDown,
   IconChevronLeft,
@@ -91,7 +93,10 @@ import {
   type EnrichedCalendarEvent,
 } from "@/lib/calendar";
 import type { CalendarEvent, CalendarEventType } from "@/lib/types";
-import type { ScheduleColor } from "@/lib/schedule-phase-drag";
+import type {
+  ScheduleBubbleKind,
+  ScheduleColor,
+} from "@/lib/schedule-phase-drag";
 
 type ViewMode = "day" | "week" | "month";
 type CalendarScope = "production" | "personal";
@@ -1398,6 +1403,18 @@ export default function CalendarPage() {
     jobId: string;
     jobName: string;
     clientName: string;
+    eventId: string;
+    phaseKind: ScheduleBubbleKind;
+    currentDate: string;
+    color: ScheduleColor;
+  } | null>(null);
+  const [scheduleMoveTarget, setScheduleMoveTarget] = useState<{
+    eventId: string;
+    jobId: string;
+    jobName: string;
+    phaseKind: ScheduleBubbleKind;
+    currentDate: string;
+    color: ScheduleColor;
   } | null>(null);
   const [scheduleEditor, setScheduleEditor] = useState<{
     jobId: string;
@@ -1412,6 +1429,7 @@ export default function CalendarPage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const calendarContainerRef = useRef<HTMLDivElement>(null);
   const loadSeq = useRef(0);
+  const monthArrowHoverRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   function resetAttachment() {
     setAttachedFile(null);
@@ -1863,6 +1881,37 @@ export default function CalendarPage() {
     setFocusDate((prev) => addDays(prev, delta * step));
   }
 
+  function clearMonthArrowHover() {
+    if (monthArrowHoverRef.current) {
+      window.clearTimeout(monthArrowHoverRef.current);
+      monthArrowHoverRef.current = null;
+    }
+  }
+
+  function monthArrowDragProps(delta: number) {
+    if (!scheduleMoveTarget) return {};
+    return {
+      onDragOver: (e: DragEvent<HTMLButtonElement>) => {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = "move";
+        if (monthArrowHoverRef.current) return;
+        monthArrowHoverRef.current = window.setTimeout(() => {
+          monthArrowHoverRef.current = null;
+          shiftDate(delta);
+        }, 1000);
+      },
+      onDragLeave: (e: DragEvent<HTMLButtonElement>) => {
+        const next = e.relatedTarget as Node | null;
+        if (next && e.currentTarget.contains(next)) return;
+        clearMonthArrowHover();
+      },
+      onDrop: (e: DragEvent<HTMLButtonElement>) => {
+        e.preventDefault();
+        clearMonthArrowHover();
+      },
+    };
+  }
+
   function shiftMonth(delta: number) {
     setFocusDate((prev) => {
       const d = new Date(prev);
@@ -1993,6 +2042,10 @@ export default function CalendarPage() {
       jobId: string;
       jobName: string;
       clientName: string;
+      eventId: string;
+      phaseKind: ScheduleBubbleKind;
+      currentDate: string;
+      color: ScheduleColor;
       x: number;
       y: number;
     }) => {
@@ -2002,10 +2055,71 @@ export default function CalendarPage() {
         jobId: args.jobId,
         jobName: args.jobName,
         clientName: args.clientName,
+        eventId: args.eventId,
+        phaseKind: args.phaseKind,
+        currentDate: args.currentDate,
+        color: args.color,
       });
     },
     []
   );
+
+  const handleMoveScheduleFromMenu = useCallback(() => {
+    if (!scheduleContextMenu) return;
+    setScheduleMoveTarget({
+      eventId: scheduleContextMenu.eventId,
+      jobId: scheduleContextMenu.jobId,
+      jobName: scheduleContextMenu.jobName,
+      phaseKind: scheduleContextMenu.phaseKind,
+      currentDate: scheduleContextMenu.currentDate,
+      color: scheduleContextMenu.color,
+    });
+    setScheduleContextMenu(null);
+  }, [scheduleContextMenu]);
+
+  const handleScheduleMoveDrop = useCallback(
+    async (newDateKey: string) => {
+      if (!scheduleMoveTarget) return;
+      if (newDateKey === scheduleMoveTarget.currentDate) {
+        setScheduleMoveTarget(null);
+        return;
+      }
+      const supabase = createClient();
+      const record = await loadJobSchedule(supabase, scheduleMoveTarget.jobId);
+      const phaseDates = phaseDatesFromRecord(record);
+      const updatedDates = {
+        ...phaseDates,
+        [scheduleMoveTarget.phaseKind]: newDateKey,
+      };
+      const { error } = await saveJobSchedule(
+        supabase,
+        scheduleMoveTarget.jobId,
+        scheduleMoveTarget.jobName,
+        updatedDates,
+        record?.color ?? scheduleMoveTarget.color
+      );
+      setScheduleMoveTarget(null);
+      if (error) {
+        setSaveError(error);
+        return;
+      }
+      await load();
+    },
+    [scheduleMoveTarget, load]
+  );
+
+  useEffect(() => {
+    if (!scheduleMoveTarget) return;
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape") setScheduleMoveTarget(null);
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [scheduleMoveTarget]);
+
+  useEffect(() => {
+    if (!scheduleMoveTarget) clearMonthArrowHover();
+  }, [scheduleMoveTarget]);
 
   const handleEditScheduleFromMenu = useCallback(async () => {
     if (!scheduleContextMenu) return;
@@ -2614,6 +2728,7 @@ export default function CalendarPage() {
                     <button
                       type="button"
                       onClick={() => shiftDate(-1)}
+                      {...monthArrowDragProps(-1)}
                       className="rounded-md border border-gray-300 p-1.5 hover:bg-gray-50"
                       aria-label="Previous month"
                     >
@@ -2625,6 +2740,7 @@ export default function CalendarPage() {
                     <button
                       type="button"
                       onClick={() => shiftDate(1)}
+                      {...monthArrowDragProps(1)}
                       className="rounded-md border border-gray-300 p-1.5 hover:bg-gray-50"
                       aria-label="Next month"
                     >
@@ -2654,6 +2770,7 @@ export default function CalendarPage() {
                   <button
                     type="button"
                     onClick={() => shiftDate(-1)}
+                    {...monthArrowDragProps(-1)}
                     className="rounded-md border border-gray-300 p-1.5 hover:bg-gray-50"
                     aria-label="Previous"
                   >
@@ -2665,6 +2782,7 @@ export default function CalendarPage() {
                   <button
                     type="button"
                     onClick={() => shiftDate(1)}
+                    {...monthArrowDragProps(1)}
                     className="rounded-md border border-gray-300 p-1.5 hover:bg-gray-50"
                     aria-label="Next"
                   >
@@ -2873,6 +2991,10 @@ export default function CalendarPage() {
                   selectedEventId={selectedEventId}
                   onOpenDate={openDatePreview}
                   onScheduleContextMenu={handleScheduleBubbleContextMenu}
+                  scheduleMoveEventId={scheduleMoveTarget?.eventId ?? null}
+                  onScheduleMoveDrop={(dateKey) =>
+                    void handleScheduleMoveDrop(dateKey)
+                  }
                   customCategories={customCategories}
                   birthdayByDate={
                     calendarScope === "production" ? employeeBirthdaysByDate : undefined
@@ -2928,6 +3050,14 @@ export default function CalendarPage() {
             >
               <IconPencil size={14} />
               Edit Schedule
+            </button>
+            <button
+              type="button"
+              onClick={handleMoveScheduleFromMenu}
+              className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-50"
+            >
+              <IconArrowsMove size={14} />
+              Move
             </button>
             <button
               type="button"

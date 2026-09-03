@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useState, type DragEvent } from "react";
 import { IconConfetti } from "@tabler/icons-react";
 import ScheduleBubbleChip, {
   scheduleBubbleFromMeta,
@@ -20,7 +20,9 @@ import {
 import { parseScheduleBubbleDescription } from "@/lib/job-schedule";
 import {
   buildJobScheduleBubbles,
+  isScheduleWeekdayKey,
   type ScheduleBubble,
+  type ScheduleBubbleKind,
   type ScheduleColor,
 } from "@/lib/schedule-phase-drag";
 
@@ -34,6 +36,7 @@ type SavedScheduleItem = {
   jobId: string | null;
   bubble: ScheduleBubble;
   color: ScheduleColor;
+  eventDate: string;
 };
 
 function scheduleJobLaneKey(jobId: string | null, jobName: string) {
@@ -66,6 +69,7 @@ function extractSavedScheduleEvents(
         jobId: event.job_id,
         bubble: scheduleBubbleFromMeta(event.title, meta),
         color: meta.color,
+        eventDate: event.event_date,
       };
     })
     .filter(Boolean) as SavedScheduleItem[];
@@ -152,6 +156,8 @@ export default function MonthGridView({
   selectedEventId,
   onOpenDate,
   onScheduleContextMenu,
+  scheduleMoveEventId = null,
+  onScheduleMoveDrop,
   birthdayByDate,
   customCategories = [],
   className = "grid min-h-0 flex-1 grid-cols-7 grid-rows-5",
@@ -165,13 +171,21 @@ export default function MonthGridView({
     jobId: string;
     jobName: string;
     clientName: string;
+    eventId: string;
+    phaseKind: ScheduleBubbleKind;
+    currentDate: string;
+    color: ScheduleColor;
     x: number;
     y: number;
   }) => void;
+  scheduleMoveEventId?: string | null;
+  onScheduleMoveDrop?: (dateKey: string) => void;
   birthdayByDate?: Map<string, { firstName: string; age: number }[]>;
   customCategories?: CustomCalendarCategory[];
   className?: string;
 }) {
+  const [dragOverDateKey, setDragOverDateKey] = useState<string | null>(null);
+  const moveModeActive = Boolean(scheduleMoveEventId && onScheduleMoveDrop);
   const {
     scheduleMode,
     scheduleJobId,
@@ -235,7 +249,26 @@ export default function MonthGridView({
     return true;
   }
 
+  function handleScheduleDragOver(e: DragEvent, dateKey: string) {
+    if (!moveModeActive) return;
+    e.preventDefault();
+    e.stopPropagation();
+    if (isScheduleWeekdayKey(dateKey)) {
+      setDragOverDateKey(dateKey);
+    }
+  }
+
+  function handleScheduleDrop(e: DragEvent, dateKey: string) {
+    if (!moveModeActive) return;
+    e.preventDefault();
+    e.stopPropagation();
+    setDragOverDateKey(null);
+    if (!isScheduleWeekdayKey(dateKey)) return;
+    onScheduleMoveDrop?.(dateKey);
+  }
+
   function handleDayClick(date: Date) {
+    if (moveModeActive) return;
     if (assignPhaseToDate(date)) return;
     if (!scheduleMode) onOpenDate(date);
   }
@@ -328,14 +361,37 @@ export default function MonthGridView({
             className={`relative flex min-h-0 flex-col border-b border-r border-gray-200 text-left last:border-r-0 [&:nth-child(7n)]:border-r-0 ${
               shopClosedReason ? "bg-gray-50" : "bg-white"
             } ${
+              moveModeActive &&
+              (dragOverDateKey === dateStr ||
+                (overflowStr && dragOverDateKey === overflowStr))
+                ? "ring-2 ring-inset ring-burgundy/40 bg-burgundy/5"
+                : ""
+            } ${
               overflowDate
                 ? ""
                 : scheduleMode
                   ? activePhase
                     ? "cursor-crosshair hover:bg-gray-50/80"
                     : ""
-                  : "cursor-pointer hover:bg-gray-50/80"
+                  : moveModeActive
+                    ? ""
+                    : "cursor-pointer hover:bg-gray-50/80"
             }`}
+            onDragOver={
+              moveModeActive && !overflowDate
+                ? (e) => handleScheduleDragOver(e, dateStr)
+                : undefined
+            }
+            onDragLeave={
+              moveModeActive
+                ? () => setDragOverDateKey(null)
+                : undefined
+            }
+            onDrop={
+              moveModeActive && !overflowDate
+                ? (e) => handleScheduleDrop(e, dateStr)
+                : undefined
+            }
           >
             {overflowDate ? (
               <>
@@ -368,6 +424,16 @@ export default function MonthGridView({
                   })}
                   className="absolute inset-0 z-[5] cursor-pointer border-0 bg-transparent p-0 [clip-path:polygon(0_0,100%_0,0_100%)] hover:bg-gray-50/80"
                   onClick={() => handleDayClick(day)}
+                  onDragOver={
+                    moveModeActive
+                      ? (e) => handleScheduleDragOver(e, dateStr)
+                      : undefined
+                  }
+                  onDrop={
+                    moveModeActive
+                      ? (e) => handleScheduleDrop(e, dateStr)
+                      : undefined
+                  }
                 />
                 <button
                   type="button"
@@ -378,6 +444,16 @@ export default function MonthGridView({
                   })}
                   className="absolute inset-0 z-[5] cursor-pointer border-0 bg-transparent p-0 [clip-path:polygon(100%_0,100%_100%,0_100%)] hover:bg-gray-50/80"
                   onClick={() => handleDayClick(overflowDate)}
+                  onDragOver={
+                    moveModeActive && overflowStr
+                      ? (e) => handleScheduleDragOver(e, overflowStr)
+                      : undefined
+                  }
+                  onDrop={
+                    moveModeActive && overflowStr
+                      ? (e) => handleScheduleDrop(e, overflowStr)
+                      : undefined
+                  }
                 />
                 <span
                   className={`pointer-events-none absolute left-1.5 top-1.5 z-10 inline-flex h-6 min-w-[1.5rem] items-center justify-center text-sm font-medium ${splitDayNumberClass(inMonth, isTodayPrimary)}`}
@@ -499,11 +575,24 @@ export default function MonthGridView({
                 }
 
                 const jobId = row.item.jobId;
+                const isMoving = scheduleMoveEventId === row.item.id;
                 return (
                   <div
                     key={row.item.id}
+                    draggable={isMoving}
+                    onDragStart={(e) => {
+                      if (!isMoving) return;
+                      e.stopPropagation();
+                      e.dataTransfer.effectAllowed = "move";
+                    }}
+                    onDragEnd={() => setDragOverDateKey(null)}
+                    className={
+                      isMoving
+                        ? "cursor-grab rounded ring-2 ring-burgundy ring-offset-1 active:cursor-grabbing"
+                        : undefined
+                    }
                     onContextMenu={
-                      !scheduleMode && onScheduleContextMenu && jobId
+                      !scheduleMode && onScheduleContextMenu && jobId && !moveModeActive
                         ? (e) => {
                             e.preventDefault();
                             e.stopPropagation();
@@ -513,6 +602,10 @@ export default function MonthGridView({
                               clientName:
                                 dayEvts.find((event) => event.id === row.item.id)
                                   ?.clientName ?? "—",
+                              eventId: row.item.id,
+                              phaseKind: row.item.bubble.kind,
+                              currentDate: row.item.eventDate,
+                              color: row.item.color,
                               x: e.clientX,
                               y: e.clientY,
                             });
