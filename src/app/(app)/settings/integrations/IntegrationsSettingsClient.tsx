@@ -14,7 +14,11 @@ type QuickBooksConnectionStatus = {
   accessTokenExpiresAt: string | null;
 };
 
-export default function IntegrationsSettingsClient() {
+export default function IntegrationsSettingsClient({
+  embedded = false,
+}: {
+  embedded?: boolean;
+}) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [isOwner, setIsOwner] = useState(false);
@@ -86,10 +90,10 @@ export default function IntegrationsSettingsClient() {
     const err = searchParams.get("error");
     if (connected === "1") {
       setSuccess("QuickBooks connected successfully.");
-      router.replace("/settings/integrations");
+      router.replace("/admin?tab=integrations");
     } else if (err) {
       setError(err);
-      router.replace("/settings/integrations");
+      router.replace("/admin?tab=integrations");
     }
   }, [searchParams, router]);
 
@@ -117,7 +121,7 @@ export default function IntegrationsSettingsClient() {
 
   if (loadingRole) {
     return (
-      <div className="p-6">
+      <div className={embedded ? "py-4" : "p-6"}>
         <p className="text-sm text-gray-500">Loading…</p>
       </div>
     );
@@ -125,9 +129,11 @@ export default function IntegrationsSettingsClient() {
 
   if (!isOwner) {
     return (
-      <div className="p-6">
-        <h1 className="text-2xl font-semibold text-gray-900">Integrations</h1>
-        <p className="mt-2 text-sm text-gray-600">
+      <div className={embedded ? "py-4" : "p-6"}>
+        {!embedded ? (
+          <h1 className="text-2xl font-semibold text-gray-900">Integrations</h1>
+        ) : null}
+        <p className={embedded ? "text-sm text-gray-600" : "mt-2 text-sm text-gray-600"}>
           Only administrators can manage integrations.
         </p>
       </div>
@@ -137,11 +143,19 @@ export default function IntegrationsSettingsClient() {
   const connected = Boolean(status?.connected);
 
   return (
-    <div className="mx-auto max-w-3xl p-6">
-      <h1 className="text-2xl font-semibold text-gray-900">Integrations</h1>
-      <p className="mt-1 text-sm text-gray-600">
-        Connect external services used by Shipshewana Woodworks.
-      </p>
+    <div className={embedded ? "max-w-3xl" : "mx-auto max-w-3xl p-6"}>
+      {embedded ? (
+        <p className="mb-4 text-sm text-gray-500">
+          Connect external services used by Shipshewana Woodworks.
+        </p>
+      ) : (
+        <>
+          <h1 className="text-2xl font-semibold text-gray-900">Integrations</h1>
+          <p className="mt-1 text-sm text-gray-600">
+            Connect external services used by Shipshewana Woodworks.
+          </p>
+        </>
+      )}
 
       {error ? (
         <p className="mt-4 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">

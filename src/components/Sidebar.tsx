@@ -26,13 +26,11 @@ import {
 
   IconFileInvoice,
 
-  IconFiles,
+  IconBuildingWarehouse,
 
   IconBook,
 
   IconSettings,
-
-  IconPlugConnected,
 
   IconLogout,
 
@@ -94,9 +92,9 @@ const navSections: { label: string; items: NavItem[] }[] = [
 
       { type: "link", href: "/invoices", label: "Invoices", icon: IconFileInvoice },
 
-      { type: "link", href: "/contacts", label: "Contacts", icon: IconAddressBook },
+      { type: "link", href: "/wholesale", label: "Wholesale", icon: IconBuildingWarehouse },
 
-      { type: "link", href: "/files", label: "Files", icon: IconFiles },
+      { type: "link", href: "/contacts", label: "Contacts", icon: IconAddressBook },
 
     ],
 
@@ -142,9 +140,17 @@ const navSections: { label: string; items: NavItem[] }[] = [
 
       },
 
-      { type: "link", href: "/settings/integrations", label: "Integrations", icon: IconPlugConnected },
+      {
 
-      { type: "link", href: "/admin", label: "Admin", icon: IconSettings },
+        type: "link",
+
+        href: "/admin",
+
+        label: "Admin",
+
+        icon: IconSettings,
+
+      },
 
     ],
 
@@ -168,15 +174,25 @@ function isActive(pathname: string, href: string) {
 
   }
 
-  if (href === "/files") {
-
-    return pathname === "/files" || pathname.startsWith("/files/");
-
-  }
-
   if (href === "/leads") {
 
     return pathname === "/leads" || pathname.startsWith("/leads/");
+
+  }
+
+  if (href === "/wholesale") {
+
+    return pathname === "/wholesale" || pathname.startsWith("/wholesale/");
+
+  }
+
+  if (href === "/admin") {
+
+    return (
+      pathname === "/admin" ||
+      pathname.startsWith("/admin/") ||
+      pathname.startsWith("/settings/integrations")
+    );
 
   }
 

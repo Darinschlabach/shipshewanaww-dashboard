@@ -24,7 +24,7 @@ export async function GET(request: Request) {
       err instanceof Error ? err.message : "Could not start QuickBooks connect.";
     return NextResponse.redirect(
       new URL(
-        `/settings/integrations?error=${encodeURIComponent(message)}`,
+        `/admin?tab=integrations&error=${encodeURIComponent(message)}`,
         getRequestOrigin(request)
       )
     );

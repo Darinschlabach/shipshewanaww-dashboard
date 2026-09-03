@@ -9,7 +9,7 @@ import {
 
 export async function GET(request: Request) {
   const origin = getRequestOrigin(request);
-  const integrationsUrl = new URL("/settings/integrations", origin);
+  const integrationsUrl = new URL("/admin?tab=integrations", origin);
 
   const auth = await requireOwnerUser();
   if ("error" in auth) {

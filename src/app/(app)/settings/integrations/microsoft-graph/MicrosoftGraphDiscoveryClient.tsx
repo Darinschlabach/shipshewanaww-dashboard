@@ -429,7 +429,7 @@ export default function MicrosoftGraphDiscoveryClient() {
           Owner access is required for Microsoft Graph discovery.
         </p>
         <Link
-          href="/settings/integrations"
+          href="/admin?tab=integrations"
           className="mt-3 inline-flex items-center gap-1 text-sm text-burgundy hover:underline"
         >
           <IconArrowLeft size={14} />
@@ -448,7 +448,7 @@ export default function MicrosoftGraphDiscoveryClient() {
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <Link
-            href="/settings/integrations"
+            href="/admin?tab=integrations"
             className="mb-2 inline-flex items-center gap-1 text-sm text-gray-600 hover:text-burgundy"
           >
             <IconArrowLeft size={14} />

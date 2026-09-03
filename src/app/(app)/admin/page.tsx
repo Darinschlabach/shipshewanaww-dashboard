@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   IconSearch,
   IconPlus,
@@ -12,7 +12,10 @@ import { createClient } from "@/lib/supabase/client";
 import ConfirmModal from "@/components/ConfirmModal";
 import Modal from "@/components/Modal";
 import Button from "@/components/Button";
+import IntegrationsSettingsClient from "@/app/(app)/settings/integrations/IntegrationsSettingsClient";
 import type { Profile, UserRole } from "@/lib/types";
+
+type AdminTab = "users" | "integrations" | "settings";
 
 type AdminRole =
   | "Administrator"
@@ -106,6 +109,7 @@ function avatarColor(name: string) {
 }
 
 export default function AdminPage() {
+  const [adminTab, setAdminTab] = useState<AdminTab>("users");
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState("");
@@ -157,6 +161,20 @@ export default function AdminPage() {
   useEffect(() => {
     load();
   }, [load]);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const tab = params.get("tab");
+    if (tab === "integrations" || tab === "settings") {
+      setAdminTab(tab);
+    }
+  }, []);
+
+  function selectAdminTab(tab: AdminTab) {
+    setAdminTab(tab);
+    const url = tab === "users" ? "/admin" : `/admin?tab=${tab}`;
+    window.history.replaceState(null, "", url);
+  }
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -270,6 +288,46 @@ export default function AdminPage() {
 
   return (
     <div>
+      <div className="mb-5 flex gap-1 border-b border-gray-200">
+        {(
+          [
+            ["users", "Users"],
+            ["integrations", "Integrations"],
+            ["settings", "Settings"],
+          ] as const
+        ).map(([id, label]) => (
+          <button
+            key={id}
+            type="button"
+            onClick={() => selectAdminTab(id)}
+            className={`whitespace-nowrap border-b-2 px-4 py-2.5 text-sm font-medium ${
+              adminTab === id
+                ? "border-burgundy text-burgundy"
+                : "border-transparent text-gray-600 hover:text-gray-900"
+            }`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {adminTab === "integrations" ? (
+        <Suspense
+          fallback={<p className="text-sm text-gray-500">Loading…</p>}
+        >
+          <IntegrationsSettingsClient embedded />
+        </Suspense>
+      ) : null}
+
+      {adminTab === "settings" ? (
+        <div>
+          <h1 className="text-2xl font-semibold text-gray-900">Settings</h1>
+          <p className="mt-1 text-sm text-gray-500">Nothing here yet.</p>
+        </div>
+      ) : null}
+
+      {adminTab === "users" ? (
+        <>
       <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
         <div>
           <h1 className="text-2xl font-semibold text-gray-900">Users</h1>
@@ -551,6 +609,8 @@ export default function AdminPage() {
           }}
         />
       )}
+        </>
+      ) : null}
     </div>
   );
 }
