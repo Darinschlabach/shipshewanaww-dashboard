@@ -417,7 +417,9 @@ export default function ContactDetailPanel({
                   <label className="mb-1 block text-sm font-medium">Address</label>
                   <AddressAutocomplete
                     value={form.address}
-                    onChange={(address) => setForm({ ...form, address })}
+                    onChange={(address) =>
+                      setForm((prev) => ({ ...prev, address }))
+                    }
                   />
                 </div>
                 <div>

@@ -347,7 +347,9 @@ function InvoiceBillingInfoPanel({
               <AddressAutocomplete
                 id="invoice-billing-address"
                 value={form.address}
-                onChange={(address) => setForm({ ...form, address })}
+                onChange={(address) =>
+                  setForm((prev) => ({ ...prev, address }))
+                }
               />
             </div>
             <div>

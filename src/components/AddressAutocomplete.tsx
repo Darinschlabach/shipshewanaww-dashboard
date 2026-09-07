@@ -21,28 +21,55 @@ export default function AddressAutocomplete({
   onChangeRef.current = onChange;
 
   const handlePlaceChange = useCallback((address: string) => {
-    onChangeRef.current(address);
+    const trimmed = address.trim();
+    if (!trimmed) return;
+    onChangeRef.current(trimmed);
   }, []);
 
   useEffect(() => {
     let autocomplete: google.maps.places.Autocomplete | null = null;
     let googleApi: typeof google | null = null;
+    let cancelled = false;
+    let pacMouseDownHandler: ((e: MouseEvent) => void) | null = null;
 
     loadGoogleMaps()
       .then((google) => {
+        if (cancelled || !inputRef.current) return;
         googleApi = google;
-        if (!inputRef.current) return;
 
         autocomplete = new google.maps.places.Autocomplete(inputRef.current, {
           types: ["address"],
-          fields: ["formatted_address"],
+          fields: ["formatted_address", "name", "address_components"],
         });
+
+        // Keep focus on the input when clicking a suggestion so place_changed
+        // fires reliably inside modals / controlled React inputs.
+        pacMouseDownHandler = (e: MouseEvent) => {
+          const target = e.target as HTMLElement | null;
+          if (target?.closest?.(".pac-item")) {
+            e.preventDefault();
+          }
+        };
+        document.addEventListener("mousedown", pacMouseDownHandler, true);
 
         autocomplete.addListener("place_changed", () => {
           const place = autocomplete?.getPlace();
-          if (place?.formatted_address) {
-            handlePlaceChange(place.formatted_address);
+          const fromPlace =
+            place?.formatted_address?.trim() || place?.name?.trim() || "";
+          const fromInput = inputRef.current?.value?.trim() || "";
+          const address = fromPlace || fromInput;
+          if (address) {
+            handlePlaceChange(address);
+            return;
           }
+          // Google sometimes fills the input a tick after place_changed.
+          window.setTimeout(() => {
+            const delayed =
+              autocomplete?.getPlace()?.formatted_address?.trim() ||
+              inputRef.current?.value?.trim() ||
+              "";
+            if (delayed) handlePlaceChange(delayed);
+          }, 0);
         });
       })
       .catch(() => {
@@ -50,6 +77,10 @@ export default function AddressAutocomplete({
       });
 
     return () => {
+      cancelled = true;
+      if (pacMouseDownHandler) {
+        document.removeEventListener("mousedown", pacMouseDownHandler, true);
+      }
       if (autocomplete && googleApi) {
         googleApi.maps.event.clearInstanceListeners(autocomplete);
       }
@@ -63,6 +94,10 @@ export default function AddressAutocomplete({
       type="text"
       value={value}
       onChange={(e) => onChange(e.target.value)}
+      onKeyDown={(e) => {
+        // Enter selects a suggestion — don't submit the surrounding form.
+        if (e.key === "Enter") e.preventDefault();
+      }}
       autoComplete="new-password"
       className={className}
     />

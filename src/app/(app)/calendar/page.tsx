@@ -3351,7 +3351,9 @@ export default function CalendarPage() {
                 <AddressAutocomplete
                   id="event-location"
                   value={form.location}
-                  onChange={(location) => setForm({ ...form, location })}
+                  onChange={(location) =>
+                    setForm((prev) => ({ ...prev, location }))
+                  }
                   className="w-full rounded-md border border-gray-300 px-3 py-1.5 text-sm"
                 />
               </div>
