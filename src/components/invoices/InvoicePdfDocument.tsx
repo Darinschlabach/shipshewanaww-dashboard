@@ -449,7 +449,7 @@ function InvoicePdfSummaryPage({
                 fontSize: 13,
               }}
             >
-              PAYMENTS MADE
+              PAYMENTS/CREDITS APPLIED
             </p>
             {paymentHistory.length === 0 ? (
               <p
@@ -460,7 +460,7 @@ function InvoicePdfSummaryPage({
                   color: "#6b7280",
                 }}
               >
-                No payments recorded.
+                No payments or credits recorded.
               </p>
             ) : (
               <table
@@ -475,7 +475,7 @@ function InvoicePdfSummaryPage({
                     {[
                       { title: "DATE", align: "left" as const },
                       { title: "METHOD", align: "left" as const },
-                      { title: "REFERENCE #", align: "left" as const },
+                      { title: "REFERENCE", align: "left" as const },
                       { title: "AMOUNT", align: "right" as const },
                     ].map(({ title, align }) => (
                       <th

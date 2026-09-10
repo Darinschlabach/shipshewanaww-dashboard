@@ -139,13 +139,18 @@ export async function fetchInvoiceDocumentPayments(
 
     if (error || !data) return [];
 
-    return data.map((row) => ({
-      id: row.id,
-      amount: Number(row.amount) || 0,
-      paidAt: String(row.paid_at).slice(0, 10),
-      method: row.method?.trim() || "—",
-      reference: row.reference?.trim() || "—",
-    }));
+    return data.map((row) => {
+      const methodRaw = row.method?.trim() || "";
+      const method =
+        methodRaw.toLowerCase() === "credit" ? "Credit" : methodRaw || "—";
+      return {
+        id: row.id,
+        amount: Number(row.amount) || 0,
+        paidAt: String(row.paid_at).slice(0, 10),
+        method,
+        reference: row.reference?.trim() || "—",
+      };
+    });
   } catch {
     return [];
   }

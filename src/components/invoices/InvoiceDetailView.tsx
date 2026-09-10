@@ -55,7 +55,14 @@ const TABS = [
   { id: "overview", label: "Overview" },
   { id: "billing", label: "Billing" },
   { id: "payments", label: "Payments" },
+  { id: "credits", label: "Credits" },
 ];
+
+const CREDIT_METHOD = "Credit";
+
+function isCreditPayment(payment: Pick<InvoicePayment, "method">): boolean {
+  return (payment.method ?? "").trim().toLowerCase() === "credit";
+}
 
 interface InvoiceLineItem {
   id: string;
@@ -436,7 +443,7 @@ function InvoiceSummaryPanel({
 
         <SummaryRow label="Total" value={formatCurrencyPrecise(total)} bold />
         <SummaryRow
-          label="Payments Received"
+          label="Payments/Credits Applied"
           value={formatCurrencyPrecise(depositsReceived)}
         />
       </div>
@@ -872,10 +879,13 @@ function InvoicePreviewPanel({
 function InvoicePaymentHistoryPanel({
   invoice,
   onInvoiceUpdated,
+  mode = "payments",
 }: {
   invoice: InvoiceDetailRow;
   onInvoiceUpdated: (next: InvoiceDetailRow) => void;
+  mode?: "payments" | "credits";
 }) {
+  const isCredits = mode === "credits";
   const [payments, setPayments] = useState<PaymentRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [editingPayment, setEditingPayment] = useState<PaymentRow | null>(null);
@@ -884,12 +894,15 @@ function InvoicePaymentHistoryPanel({
   const [error, setError] = useState<string | null>(null);
   const [form, setForm] = useState({
     amount: "",
-    method: "Check",
+    method: isCredits ? CREDIT_METHOD : "Check",
     paidAt: new Date().toISOString().slice(0, 10),
     reference: "",
   });
 
   const modalOpen = recording || editingPayment != null;
+  const visiblePayments = payments.filter((payment) =>
+    isCredits ? isCreditPayment(payment) : !isCreditPayment(payment)
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -940,7 +953,7 @@ function InvoicePaymentHistoryPanel({
     setEditingPayment(null);
     setForm({
       amount: "",
-      method: "Check",
+      method: isCredits ? CREDIT_METHOD : "Check",
       paidAt: new Date().toISOString().slice(0, 10),
       reference: "",
     });
@@ -953,7 +966,9 @@ function InvoicePaymentHistoryPanel({
     setEditingPayment(payment);
     setForm({
       amount: String(Number(payment.amount)),
-      method: payment.method || "Check",
+      method: isCredits
+        ? CREDIT_METHOD
+        : payment.method || "Check",
       paidAt: payment.paid_at.slice(0, 10),
       reference: payment.reference?.trim() || "",
     });
@@ -963,13 +978,21 @@ function InvoicePaymentHistoryPanel({
   async function handleSavePayment(e: FormEvent) {
     e.preventDefault();
     if (isSyntheticInvoiceId(invoice.id)) {
-      setError("Save this invoice before recording payments.");
+      setError(
+        isCredits
+          ? "Save this invoice before applying credits."
+          : "Save this invoice before recording payments."
+      );
       return;
     }
 
     const amount = parseFloat(form.amount);
     if (!Number.isFinite(amount) || amount <= 0) {
-      setError("Enter a valid payment amount.");
+      setError(
+        isCredits
+          ? "Enter a valid credit amount."
+          : "Enter a valid payment amount."
+      );
       return;
     }
 
@@ -977,6 +1000,7 @@ function InvoicePaymentHistoryPanel({
     setError(null);
     const paidAt = form.paidAt || new Date().toISOString().slice(0, 10);
     const reference = form.reference.trim() || null;
+    const method = isCredits ? CREDIT_METHOD : form.method;
 
     if (editingPayment) {
       const res = await fetch(
@@ -987,7 +1011,7 @@ function InvoicePaymentHistoryPanel({
           body: JSON.stringify({
             amount,
             paid_at: paidAt,
-            method: form.method,
+            method,
             reference,
           }),
         }
@@ -1001,7 +1025,10 @@ function InvoicePaymentHistoryPanel({
 
       if (!res.ok || !json.data) {
         setSaving(false);
-        setError(json.error || "Could not update payment.");
+        setError(
+          json.error ||
+            (isCredits ? "Could not update credit." : "Could not update payment.")
+        );
         return;
       }
 
@@ -1027,7 +1054,7 @@ function InvoicePaymentHistoryPanel({
       body: JSON.stringify({
         amount,
         paid_at: paidAt,
-        method: form.method,
+        method,
         reference,
       }),
     });
@@ -1040,7 +1067,10 @@ function InvoicePaymentHistoryPanel({
 
     if (!res.ok || !json.data) {
       setSaving(false);
-      setError(json.error || "Could not record payment.");
+      setError(
+        json.error ||
+          (isCredits ? "Could not apply credit." : "Could not record payment.")
+      );
       return;
     }
 
@@ -1071,7 +1101,10 @@ function InvoicePaymentHistoryPanel({
     };
 
     if (!res.ok) {
-      setError(json.error || "Could not delete payment.");
+      setError(
+        json.error ||
+          (isCredits ? "Could not delete credit." : "Could not delete payment.")
+      );
       return;
     }
 
@@ -1094,7 +1127,7 @@ function InvoicePaymentHistoryPanel({
       <div className="flex min-h-0 flex-1 flex-col rounded-lg border border-gray-200 bg-white p-5">
         <div className="mb-4 flex shrink-0 items-center justify-between gap-3">
           <h3 className="text-base font-semibold text-gray-900">
-            Payment History
+            {isCredits ? "Credit History" : "Payment History"}
           </h3>
           <button
             type="button"
@@ -1102,7 +1135,7 @@ function InvoicePaymentHistoryPanel({
             className="inline-flex shrink-0 items-center gap-1.5 rounded-md bg-burgundy px-3 py-1.5 text-sm font-medium text-white hover:bg-burgundy/90"
           >
             <IconPlus size={16} />
-            Record Payment
+            {isCredits ? "Apply Credit" : "Record Payment"}
           </button>
         </div>
 
@@ -1134,17 +1167,19 @@ function InvoicePaymentHistoryPanel({
                     Loading…
                   </td>
                 </tr>
-              ) : payments.length === 0 ? (
+              ) : visiblePayments.length === 0 ? (
                 <tr>
                   <td
                     colSpan={6}
                     className="px-3 py-8 text-center text-sm text-gray-500"
                   >
-                    No payments recorded yet.
+                    {isCredits
+                      ? "No credits applied yet."
+                      : "No payments recorded yet."}
                   </td>
                 </tr>
               ) : (
-                payments.map((payment) => (
+                visiblePayments.map((payment) => (
                   <tr
                     key={payment.id}
                     className="group border-b border-gray-100 last:border-b-0 hover:bg-gray-50"
@@ -1153,7 +1188,9 @@ function InvoicePaymentHistoryPanel({
                       {formatDateLong(payment.paid_at.slice(0, 10))}
                     </td>
                     <td className="px-3 py-3 text-gray-900">
-                      {payment.method || "—"}
+                      {isCredits
+                        ? CREDIT_METHOD
+                        : payment.method || "—"}
                     </td>
                     <td className="px-3 py-3 text-gray-600">
                       {payment.reference?.trim() || "—"}
@@ -1182,7 +1219,7 @@ function InvoicePaymentHistoryPanel({
                           type="button"
                           onClick={() => openEdit(payment)}
                           className="rounded p-1 text-gray-400 hover:bg-gray-100 hover:text-burgundy"
-                          aria-label="Edit payment"
+                          aria-label={isCredits ? "Edit credit" : "Edit payment"}
                         >
                           <IconPencil size={16} />
                         </button>
@@ -1190,7 +1227,9 @@ function InvoicePaymentHistoryPanel({
                           type="button"
                           onClick={() => void handleDeletePayment(payment)}
                           className="rounded p-1 text-gray-400 hover:bg-red-50 hover:text-red-600"
-                          aria-label="Delete payment"
+                          aria-label={
+                            isCredits ? "Delete credit" : "Delete payment"
+                          }
                         >
                           <IconTrash size={16} />
                         </button>
@@ -1210,7 +1249,15 @@ function InvoicePaymentHistoryPanel({
 
       {modalOpen && (
         <Modal
-          title={editingPayment ? "Edit Payment" : "Record Payment"}
+          title={
+            editingPayment
+              ? isCredits
+                ? "Edit Credit"
+                : "Edit Payment"
+              : isCredits
+                ? "Apply Credit"
+                : "Record Payment"
+          }
           onClose={closeModal}
         >
           <form onSubmit={handleSavePayment} className="space-y-4">
@@ -1228,22 +1275,24 @@ function InvoicePaymentHistoryPanel({
                 className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
               />
             </div>
-            <div>
-              <label className="mb-1 block text-sm font-medium text-gray-700">
-                Method
-              </label>
-              <select
-                value={form.method}
-                onChange={(e) => setForm({ ...form, method: e.target.value })}
-                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
-              >
-                {PAYMENT_METHODS.map((method) => (
-                  <option key={method} value={method}>
-                    {method}
-                  </option>
-                ))}
-              </select>
-            </div>
+            {!isCredits ? (
+              <div>
+                <label className="mb-1 block text-sm font-medium text-gray-700">
+                  Method
+                </label>
+                <select
+                  value={form.method}
+                  onChange={(e) => setForm({ ...form, method: e.target.value })}
+                  className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
+                >
+                  {PAYMENT_METHODS.map((method) => (
+                    <option key={method} value={method}>
+                      {method}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            ) : null}
             <div>
               <label className="mb-1 block text-sm font-medium text-gray-700">
                 Date
@@ -1266,7 +1315,9 @@ function InvoicePaymentHistoryPanel({
                 onChange={(e) =>
                   setForm({ ...form, reference: e.target.value })
                 }
-                placeholder="Check #, last 4, etc."
+                placeholder={
+                  isCredits ? "Credit memo #, note, etc." : "Check #, last 4, etc."
+                }
                 className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
               />
             </div>
@@ -1280,7 +1331,9 @@ function InvoicePaymentHistoryPanel({
                   ? "Saving…"
                   : editingPayment
                     ? "Save Changes"
-                    : "Record Payment"}
+                    : isCredits
+                      ? "Apply Credit"
+                      : "Record Payment"}
               </Button>
             </div>
           </form>
@@ -1617,7 +1670,8 @@ export default function InvoiceDetailView({
   const fillHeight =
     activeTab === "overview" ||
     activeTab === "billing" ||
-    activeTab === "payments";
+    activeTab === "payments" ||
+    activeTab === "credits";
 
   return (
     <div
@@ -1828,6 +1882,29 @@ export default function InvoiceDetailView({
             <InvoicePaymentHistoryPanel
               invoice={invoice}
               onInvoiceUpdated={setInvoice}
+              mode="payments"
+            />
+          </div>
+          <div className="flex min-h-0 h-full flex-col gap-3 lg:col-span-3">
+            <div className="shrink-0">
+              <InvoiceBillingInfoPanel
+                invoice={invoice}
+                meta={meta}
+                onUpdated={setInvoice}
+              />
+            </div>
+            <InvoiceSummaryPanel items={lineItems} invoice={invoice} />
+          </div>
+        </div>
+      )}
+
+      {activeTab === "credits" && (
+        <div className="grid min-h-0 flex-1 grid-cols-1 gap-3 overflow-hidden lg:grid-cols-8">
+          <div className="flex min-h-0 h-full flex-col lg:col-span-5">
+            <InvoicePaymentHistoryPanel
+              invoice={invoice}
+              onInvoiceUpdated={setInvoice}
+              mode="credits"
             />
           </div>
           <div className="flex min-h-0 h-full flex-col gap-3 lg:col-span-3">
@@ -1845,7 +1922,8 @@ export default function InvoiceDetailView({
 
       {activeTab !== "overview" &&
         activeTab !== "billing" &&
-        activeTab !== "payments" && (
+        activeTab !== "payments" &&
+        activeTab !== "credits" && (
         <div className="rounded-lg border border-gray-200 bg-white p-8 text-center text-sm text-gray-500">
           {TABS.find((tab) => tab.id === activeTab)?.label} coming soon.
         </div>
