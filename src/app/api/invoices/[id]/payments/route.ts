@@ -1,8 +1,6 @@
 import { jsonError, jsonOk, requireApiUser } from "@/lib/api-auth";
-import {
-  computeInvoiceStatus,
-  isMissingInvoicePaymentReferenceColumn,
-} from "@/lib/invoices";
+import { isMissingInvoicePaymentReferenceColumn } from "@/lib/invoices";
+import { syncInvoiceBalanceFromPayments } from "@/lib/invoice-mutations";
 import { syncPaymentToQuickBooks } from "@/lib/integrations/quickbooks-sync";
 
 type PaymentBody = {
@@ -73,20 +71,13 @@ export async function POST(
     return jsonError(error?.message || "Could not record payment.", 500);
   }
 
-  const balance = Math.max(0, Number(invoice.balance) - amount);
-  const status = computeInvoiceStatus(
-    balance,
-    invoice.due_date,
-    invoice.status === "draft" ? "draft" : undefined
+  const { error: updateError } = await syncInvoiceBalanceFromPayments(
+    auth.supabase,
+    invoiceId
   );
 
-  const { error: updateError } = await auth.supabase
-    .from("invoices")
-    .update({ balance, status })
-    .eq("id", invoiceId);
-
   if (updateError) {
-    return jsonError(updateError.message, 500);
+    return jsonError(updateError, 500);
   }
 
   const sync = await syncPaymentToQuickBooks(payment.id);

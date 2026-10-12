@@ -168,11 +168,11 @@ export function buildInvoicesFromJobs(
 
 export function buildPaymentsFromInvoices(invoices: Invoice[]): InvoicePayment[] {
   return invoices
-    .filter((inv) => inv.balance < inv.amount)
+    .filter((inv) => inv.balance < Math.floor(inv.amount))
     .map((inv) => ({
       id: `pay-${inv.id}`,
       invoice_id: inv.id,
-      amount: inv.amount - inv.balance,
+      amount: Math.floor(inv.amount) - inv.balance,
       paid_at: inv.updated_at,
       method: "Check",
       invoices: {

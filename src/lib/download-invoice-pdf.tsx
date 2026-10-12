@@ -145,7 +145,7 @@ export async function downloadInvoicePdf(opts: {
     const includeTax = opts.includeTax ?? false;
     const paymentsCredits = Math.max(
       0,
-      Number(opts.invoice.amount) - Number(opts.invoice.balance)
+      Math.floor(Number(opts.invoice.amount) || 0) - Number(opts.invoice.balance)
     );
     const paymentHistory = await fetchInvoiceDocumentPayments(opts.invoice);
 

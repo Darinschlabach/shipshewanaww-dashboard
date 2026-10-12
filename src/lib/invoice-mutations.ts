@@ -59,6 +59,28 @@ export async function replaceInvoiceLineItems(
   return { amount, error: null };
 }
 
+export function invoiceBalanceFromPaid(amount: number, paid: number): number {
+  const total = Math.floor(Number(amount) || 0);
+  return Math.max(0, Math.round((total - paid) * 100) / 100);
+}
+
+export async function syncInvoiceBalanceFromPayments(
+  supabase: SupabaseClient,
+  invoiceId: string
+): Promise<{ balance: number; status: InvoiceStatus; error: string | null }> {
+  const { data: invoice, error } = await supabase
+    .from("invoices")
+    .select("amount")
+    .eq("id", invoiceId)
+    .single();
+
+  if (error || !invoice) {
+    return { balance: 0, status: "open", error: error?.message ?? "Invoice not found." };
+  }
+
+  return recalculateInvoiceBalance(supabase, invoiceId, Number(invoice.amount) || 0);
+}
+
 export async function recalculateInvoiceBalance(
   supabase: SupabaseClient,
   invoiceId: string,
@@ -78,7 +100,7 @@ export async function recalculateInvoiceBalance(
     (sum, row) => sum + (Number(row.amount) || 0),
     0
   );
-  const balance = Math.max(0, amount - paid);
+  const balance = invoiceBalanceFromPaid(amount, paid);
 
   const { data: invoice } = await supabase
     .from("invoices")

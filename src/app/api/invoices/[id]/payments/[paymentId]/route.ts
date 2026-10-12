@@ -1,8 +1,6 @@
 import { jsonError, jsonOk, requireApiUser } from "@/lib/api-auth";
-import {
-  computeInvoiceStatus,
-  isMissingInvoicePaymentReferenceColumn,
-} from "@/lib/invoices";
+import { isMissingInvoicePaymentReferenceColumn } from "@/lib/invoices";
+import { syncInvoiceBalanceFromPayments } from "@/lib/invoice-mutations";
 import {
   deletePaymentInQuickBooks,
   syncPaymentToQuickBooks,
@@ -95,21 +93,13 @@ export async function PATCH(
     return jsonError(error?.message || "Could not update payment.", 500);
   }
 
-  const amountDelta = Number(existing.amount) - amount;
-  const balance = Math.max(0, Number(invoice.balance) + amountDelta);
-  const status = computeInvoiceStatus(
-    balance,
-    invoice.due_date,
-    invoice.status === "draft" ? "draft" : undefined
+  const { error: updateError } = await syncInvoiceBalanceFromPayments(
+    auth.supabase,
+    invoiceId
   );
 
-  const { error: updateError } = await auth.supabase
-    .from("invoices")
-    .update({ balance, status })
-    .eq("id", invoiceId);
-
   if (updateError) {
-    return jsonError(updateError.message, 500);
+    return jsonError(updateError, 500);
   }
 
   const sync = await syncPaymentToQuickBooks(paymentId);
@@ -192,23 +182,13 @@ export async function DELETE(
     return jsonError(error.message, 500);
   }
 
-  const balance = Math.max(
-    0,
-    Number(invoice.balance) + Number(existing.amount)
+  const { error: updateError } = await syncInvoiceBalanceFromPayments(
+    auth.supabase,
+    invoiceId
   );
-  const status = computeInvoiceStatus(
-    balance,
-    invoice.due_date,
-    invoice.status === "draft" ? "draft" : undefined
-  );
-
-  const { error: updateError } = await auth.supabase
-    .from("invoices")
-    .update({ balance, status })
-    .eq("id", invoiceId);
 
   if (updateError) {
-    return jsonError(updateError.message, 500);
+    return jsonError(updateError, 500);
   }
 
   const { data: refreshedInvoice } = await auth.supabase

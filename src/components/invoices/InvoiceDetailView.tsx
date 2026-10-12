@@ -403,7 +403,7 @@ function InvoiceSummaryPanel({
   const total = Math.floor(subtotal - discount + tax);
   const depositsReceived = Math.max(
     0,
-    Number(invoice.amount) - Number(invoice.balance)
+    Math.floor(Number(invoice.amount) || 0) - Number(invoice.balance)
   );
   const balanceDue = Math.max(0, total - depositsReceived);
 

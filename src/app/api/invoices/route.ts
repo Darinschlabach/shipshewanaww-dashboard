@@ -48,7 +48,7 @@ export async function POST(request: Request) {
       invoice_date: invoiceDate,
       due_date: body.due_date || invoiceDueDateFromIssueDate(invoiceDate),
       amount: Number(body.amount) || 0,
-      balance: Number(body.amount) || 0,
+      balance: Math.floor(Number(body.amount) || 0),
       status: body.status || "open",
       qb_sync_status: "pending",
       qb_sync_error: null,
