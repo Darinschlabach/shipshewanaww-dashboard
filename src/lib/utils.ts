@@ -14,7 +14,7 @@ export function formatCurrencyFull(value: number): string {
     style: "currency",
     currency: "USD",
     maximumFractionDigits: 0,
-  }).format(value);
+  }).format(Math.trunc(value));
 }
 
 export function formatCurrencyPrecise(value: number): string {
