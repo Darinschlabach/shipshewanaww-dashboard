@@ -60,3 +60,21 @@ export function saveInvoiceTemplateSettings(
   if (typeof window === "undefined") return;
   window.localStorage.setItem(storageKey(invoiceId), JSON.stringify(settings));
 }
+
+function includeTaxKey(invoiceId: string) {
+  return `invoice-include-tax:${invoiceId}`;
+}
+
+export function loadInvoiceIncludeTax(invoiceId: string): boolean {
+  if (typeof window === "undefined") return false;
+  return window.localStorage.getItem(includeTaxKey(invoiceId)) === "1";
+}
+
+export function saveInvoiceIncludeTax(invoiceId: string, includeTax: boolean) {
+  if (typeof window === "undefined") return;
+  if (includeTax) {
+    window.localStorage.setItem(includeTaxKey(invoiceId), "1");
+  } else {
+    window.localStorage.removeItem(includeTaxKey(invoiceId));
+  }
+}

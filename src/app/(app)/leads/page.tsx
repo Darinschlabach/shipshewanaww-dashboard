@@ -31,6 +31,7 @@ import {
   isActiveQuote,
   nextQuoteNumber,
   normalizeQuoteStatus,
+  QUOTE_V2_SOURCE,
   quotePipelineValue,
   sumQuoteValue,
   type QuoteDisplayStatus,
@@ -101,6 +102,7 @@ export default function LeadsPage() {
         .is("job_id", null)
         .is("converted_job_id", null)
         .neq("status", "converted")
+        .or(`source.is.null,source.neq.${QUOTE_V2_SOURCE}`)
         .order("updated_at", { ascending: false }),
       supabase.from("contacts").select("*").order("name"),
     ]);

@@ -16,7 +16,7 @@ import Button from "@/components/Button";
 import ConfirmModal from "@/components/ConfirmModal";
 import Modal from "@/components/Modal";
 import QuickBooksSyncStatusPanel from "@/components/integrations/QuickBooksSyncStatusPanel";
-import { COMPANY } from "@/lib/company";
+import { COMPANY, invoiceTaxTotals } from "@/lib/company";
 import {
   buildInvoiceDetail,
   formatInvoiceDisplayNumber,
@@ -30,8 +30,10 @@ import {
   type InvoicePayment,
 } from "@/lib/invoices";
 import {
+  loadInvoiceIncludeTax,
   loadInvoiceTemplateSettings,
   parseDownPaymentPercent,
+  saveInvoiceIncludeTax,
   saveInvoiceTemplateSettings,
   type InvoicePdfTemplate,
 } from "@/lib/invoice-template";
@@ -390,17 +392,24 @@ function InvoiceBillingInfoPanel({
   );
 }
 
+function invoiceLineSubtotal(items: InvoiceLineItem[]) {
+  return items.reduce((sum, item) => sum + item.qty * item.price, 0);
+}
+
 function InvoiceSummaryPanel({
   items,
   invoice,
+  includeTax,
+  onIncludeTaxChange,
 }: {
   items: InvoiceLineItem[];
   invoice: InvoiceDetailRow;
+  includeTax: boolean;
+  onIncludeTaxChange: (includeTax: boolean) => void;
 }) {
-  const subtotal = items.reduce((sum, item) => sum + item.qty * item.price, 0);
+  const subtotal = invoiceLineSubtotal(items);
   const discount = 0;
-  const tax = 0;
-  const total = Math.floor(subtotal - discount + tax);
+  const { tax, total } = invoiceTaxTotals(subtotal, discount, includeTax);
   const depositsReceived = Math.max(
     0,
     Math.floor(Number(invoice.amount) || 0) - Number(invoice.balance)
@@ -413,7 +422,7 @@ function InvoiceSummaryPanel({
     bold,
     highlight,
   }: {
-    label: string;
+    label: ReactNode;
     value: ReactNode;
     bold?: boolean;
     highlight?: boolean;
@@ -437,7 +446,22 @@ function InvoiceSummaryPanel({
       <div className="space-y-0">
         <SummaryRow label="Subtotal" value={formatCurrencyPrecise(subtotal)} />
         <SummaryRow label="Discount" value={formatCurrencyPrecise(discount)} />
-        <SummaryRow label="Tax" value={formatCurrencyPrecise(tax)} />
+        <SummaryRow
+          label={
+            <span className="inline-flex items-center gap-1.5">
+              Tax
+              <input
+                type="checkbox"
+                checked={includeTax}
+                onChange={(e) => onIncludeTaxChange(e.target.checked)}
+                className="h-3.5 w-3.5 rounded border-gray-300 text-burgundy focus:ring-burgundy"
+                aria-label="Add 7% sales tax"
+                title="Add 7% sales tax"
+              />
+            </span>
+          }
+          value={formatCurrencyPrecise(tax)}
+        />
 
         <hr className="my-1 border-gray-200" />
 
@@ -668,12 +692,16 @@ function InvoicePreviewPanel({
   invoice,
   meta,
   lineItems,
+  includeTax,
+  taxedTotal,
 }: {
   invoice: InvoiceDetailRow;
   meta: InvoiceDetailMeta;
   lineItems: InvoiceLineItem[];
+  includeTax: boolean;
+  taxedTotal: number;
 }) {
-  const invoiceTotal = Number(invoice.amount) || 0;
+  const invoiceTotal = includeTax ? taxedTotal : Number(invoice.amount) || 0;
   const [downloadingPdf, setDownloadingPdf] = useState(false);
   const [pdfError, setPdfError] = useState<string | null>(null);
   const [template, setTemplate] = useState<InvoicePdfTemplate>("standard");
@@ -742,6 +770,7 @@ function InvoicePreviewPanel({
         invoice,
         meta,
         lineItems,
+        includeTax,
         template,
         downPaymentPercent:
           template === "advance" ? parseDownPaymentPercent(percentDraft) : null,
@@ -1363,13 +1392,33 @@ export default function InvoiceDetailView({
   const [quotePickerOptions, setQuotePickerOptions] = useState<Lead[]>([]);
   const [quotePickerHint, setQuotePickerHint] = useState<string | null>(null);
   const [linkingQuoteId, setLinkingQuoteId] = useState<string | null>(null);
+  const [includeTax, setIncludeTax] = useState(false);
   const meta = buildInvoiceDetail(invoice);
+  const taxedTotal = invoiceTaxTotals(
+    invoiceLineSubtotal(lineItems),
+    0,
+    includeTax
+  ).total;
+  const paymentsApplied = Math.max(
+    0,
+    Math.floor(Number(invoice.amount) || 0) - Number(invoice.balance)
+  );
+  const taxedBalanceDue = Math.max(0, taxedTotal - paymentsApplied);
   const canAddQuoteItems = Boolean(invoice.job_id);
   const canPersist = !isSyntheticInvoiceId(invoice.id);
 
   useEffect(() => {
     setInvoice(initialInvoice);
   }, [initialInvoice]);
+
+  useEffect(() => {
+    setIncludeTax(loadInvoiceIncludeTax(invoice.id));
+  }, [invoice.id]);
+
+  function handleIncludeTaxChange(next: boolean) {
+    setIncludeTax(next);
+    saveInvoiceIncludeTax(invoice.id, next);
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -1782,11 +1831,15 @@ export default function InvoiceDetailView({
               </p>
               <p className="mt-1 text-xs text-gray-500">Invoice Total</p>
               <p className="text-xl font-semibold text-gray-900">
-                {formatCurrencyFull(Number(invoice.amount))}
+                {formatCurrencyFull(
+                  includeTax ? taxedTotal : Number(invoice.amount)
+                )}
               </p>
               <p className="mt-2 text-xs text-gray-500">Balance Due</p>
               <p className="text-sm font-semibold text-gray-900">
-                {formatCurrencyFull(Number(invoice.balance))}
+                {formatCurrencyFull(
+                  includeTax ? taxedBalanceDue : Number(invoice.balance)
+                )}
               </p>
             </div>
             <div className="min-w-0 p-3">
@@ -1814,7 +1867,12 @@ export default function InvoiceDetailView({
 
           <div className="grid min-h-0 flex-1 grid-cols-1 gap-3 md:grid-cols-2">
             <div className="flex min-h-0 min-w-0 flex-col gap-3 overflow-auto">
-              <InvoiceSummaryPanel items={lineItems} invoice={invoice} />
+              <InvoiceSummaryPanel
+                items={lineItems}
+                invoice={invoice}
+                includeTax={includeTax}
+                onIncludeTaxChange={handleIncludeTaxChange}
+              />
               {!isSyntheticInvoiceId(invoice.id) && (
                 <QuickBooksSyncStatusPanel
                   entity="invoice"
@@ -1832,6 +1890,8 @@ export default function InvoiceDetailView({
                   invoice={invoice}
                   meta={meta}
                   lineItems={lineItems}
+                  includeTax={includeTax}
+                  taxedTotal={taxedTotal}
                 />
               </div>
             </div>
@@ -1871,7 +1931,12 @@ export default function InvoiceDetailView({
                 onUpdated={setInvoice}
               />
             </div>
-            <InvoiceSummaryPanel items={lineItems} invoice={invoice} />
+            <InvoiceSummaryPanel
+              items={lineItems}
+              invoice={invoice}
+              includeTax={includeTax}
+              onIncludeTaxChange={handleIncludeTaxChange}
+            />
           </div>
         </div>
       )}
@@ -1893,7 +1958,12 @@ export default function InvoiceDetailView({
                 onUpdated={setInvoice}
               />
             </div>
-            <InvoiceSummaryPanel items={lineItems} invoice={invoice} />
+            <InvoiceSummaryPanel
+              items={lineItems}
+              invoice={invoice}
+              includeTax={includeTax}
+              onIncludeTaxChange={handleIncludeTaxChange}
+            />
           </div>
         </div>
       )}
@@ -1915,7 +1985,12 @@ export default function InvoiceDetailView({
                 onUpdated={setInvoice}
               />
             </div>
-            <InvoiceSummaryPanel items={lineItems} invoice={invoice} />
+            <InvoiceSummaryPanel
+              items={lineItems}
+              invoice={invoice}
+              includeTax={includeTax}
+              onIncludeTaxChange={handleIncludeTaxChange}
+            />
           </div>
         </div>
       )}

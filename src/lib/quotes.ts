@@ -30,6 +30,9 @@ export const QUOTE_SOURCES = [
   "Referral",
 ] as const;
 
+/** Marks a lead row as belonging to Quotes v2, separate from the original Quotes list. */
+export const QUOTE_V2_SOURCE = "quotes_v2";
+
 export type QuoteSource = (typeof QUOTE_SOURCES)[number];
 
 const STATUS_MAP: Record<string, QuoteDisplayStatus> = {

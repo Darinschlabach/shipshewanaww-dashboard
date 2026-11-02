@@ -25,7 +25,7 @@ import {
   normalizePoDisplayStatus,
 } from "@/lib/purchase-orders";
 import { type InvoiceRow } from "@/lib/invoices";
-import { isActiveQuote } from "@/lib/quotes";
+import { isActiveQuote, QUOTE_V2_SOURCE } from "@/lib/quotes";
 import { formatDateLong } from "@/lib/utils";
 import type { CalendarEvent, Job, Lead, PurchaseOrder } from "@/lib/types";
 
@@ -351,7 +351,8 @@ export default function DashboardView() {
             .select("*")
             .is("job_id", null)
             .is("converted_job_id", null)
-            .neq("status", "converted"),
+            .neq("status", "converted")
+            .or(`source.is.null,source.neq.${QUOTE_V2_SOURCE}`),
           supabase.from("jobs").select("*"),
           supabase.from("purchase_orders").select("*, jobs(id, name)"),
           supabase

@@ -28,7 +28,7 @@ import {
   type InvoiceRow,
 } from "@/lib/invoices";
 import { formatProductionJobNumber } from "@/lib/production";
-import { formatQuoteNumber } from "@/lib/quotes";
+import { formatQuoteNumber, QUOTE_V2_SOURCE } from "@/lib/quotes";
 import {
   formatCurrencyFull,
   formatCurrencyPrecise,
@@ -91,6 +91,7 @@ export default function WholesaleAccountsPage() {
           supabase
             .from("leads")
             .select("*")
+            .or(`source.is.null,source.neq.${QUOTE_V2_SOURCE}`)
             .order("updated_at", { ascending: false }),
           supabase.from("production_jobs").select("job_id, kanban_status"),
         ]),

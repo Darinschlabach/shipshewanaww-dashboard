@@ -1,4 +1,4 @@
-import { COMPANY, quoteSalesTax } from "@/lib/company";
+import { COMPANY, invoiceTaxTotals } from "@/lib/company";
 import type { InvoiceDocumentPayment } from "@/lib/invoice-document";
 import type { QuoteDocumentData } from "@/lib/quote-document";
 import { formatCurrencyPrecise, formatDateLong } from "@/lib/utils";
@@ -95,8 +95,7 @@ function InvoicePdfSummaryPage({
 }) {
   const fullAmount = data.roomsTotal + data.servicesTotal;
   const subtotal = fullAmount;
-  const tax = quoteSalesTax(fullAmount, includeTax);
-  const total = Math.floor(fullAmount + tax);
+  const { tax, total } = invoiceTaxTotals(fullAmount, 0, includeTax);
   const payments = Math.max(0, paymentsCredits);
   const balanceDue = Math.max(0, total - payments);
   const isAdvance = template === "advance";
@@ -104,7 +103,9 @@ function InvoicePdfSummaryPage({
     isAdvance &&
     downPaymentPercent != null &&
     Number.isFinite(downPaymentPercent)
-      ? Math.floor(total * (downPaymentPercent / 100))
+      ? includeTax
+        ? Math.round(total * (downPaymentPercent / 100) * 100) / 100
+        : Math.floor(total * (downPaymentPercent / 100))
       : null;
   const amountDue = downPayment != null ? downPayment : balanceDue;
   const balanceDueUponDelivery =

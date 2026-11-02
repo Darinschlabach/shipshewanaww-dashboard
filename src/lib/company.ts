@@ -21,6 +21,21 @@ export function quoteSalesTax(subtotal: number, includeTax: boolean): number {
   return includeTax ? subtotal * QUOTE_SALES_TAX_RATE : 0;
 }
 
+/** Invoice tax. Unchecked keeps the existing whole-dollar total. */
+export function invoiceTaxTotals(
+  subtotal: number,
+  discount: number,
+  includeTax: boolean
+): { tax: number; total: number } {
+  const net = subtotal - discount;
+  if (!includeTax) {
+    return { tax: 0, total: Math.floor(net) };
+  }
+  const tax = Math.round(Math.max(0, net) * QUOTE_SALES_TAX_RATE * 100) / 100;
+  const total = Math.round((net + tax) * 100) / 100;
+  return { tax, total };
+}
+
 export const QUOTE_PROPOSAL_LEGAL =
   "All material guaranteed to be as specified. All work to be completed in a workmanlike manner according to standard practices. Any alteration or deviation from above specifications involving extra cost will be executed only upon written orders and will become an extra charge over and above the estimate. All agreements contingent upon strikes, accidents or delays beyond our control. Owner to carry fire, tornado and other necessary insurance.";
 
