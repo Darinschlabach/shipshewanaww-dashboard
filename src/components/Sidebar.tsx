@@ -32,10 +32,6 @@ import {
 
   IconSettings,
 
-  IconClipboardText,
-
-  IconBooks,
-
   IconLogout,
 
   IconChevronDown,
@@ -153,30 +149,6 @@ const navSections: { label: string; items: NavItem[] }[] = [
         label: "Admin",
 
         icon: IconSettings,
-
-      },
-
-      {
-
-        type: "link",
-
-        href: "/quotes-v2",
-
-        label: "Quotes v 2",
-
-        icon: IconClipboardText,
-
-      },
-
-      {
-
-        type: "link",
-
-        href: "/catalogue-v2",
-
-        label: "Catalogue v 2",
-
-        icon: IconBooks,
 
       },
 
