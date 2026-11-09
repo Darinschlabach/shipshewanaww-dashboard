@@ -14,6 +14,7 @@ import {
   IconX,
 } from "@tabler/icons-react";
 import { createClient } from "@/lib/supabase/client";
+import FilterPills from "@/components/FilterPills";
 import PageHeader from "@/components/PageHeader";
 import ConfirmModal from "@/components/ConfirmModal";
 import Modal from "@/components/Modal";
@@ -431,24 +432,12 @@ export default function LeadsPage() {
         }
       />
 
-      <div className="mb-4 flex flex-wrap gap-2">
-        {filterOptions.map((opt) => {
-          const active = filter === opt.value;
-          return (
-            <button
-              key={opt.value}
-              type="button"
-              onClick={() => setFilter(opt.value)}
-              className={`rounded-full border px-4 py-1.5 text-sm transition-colors ${
-                active
-                  ? "border-burgundy bg-white text-burgundy"
-                  : "border-gray-300 bg-white text-gray-600 hover:border-gray-400"
-              }`}
-            >
-              {opt.label}
-            </button>
-          );
-        })}
+      <div className="mb-4">
+        <FilterPills
+          options={filterOptions}
+          value={filter}
+          onChange={(value) => setFilter(value as QuoteDisplayStatus | "all")}
+        />
       </div>
 
       <div className="mb-4 flex flex-wrap overflow-hidden rounded-lg border border-gray-200 bg-cream">

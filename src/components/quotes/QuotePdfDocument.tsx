@@ -1,4 +1,10 @@
-import { COMPANY, quoteSalesTax } from "@/lib/company";
+import {
+  COMPANY,
+  formatQuoteDiscountPercent,
+  quoteDiscountAmount,
+  quoteDiscountPercent,
+  quoteSalesTax,
+} from "@/lib/company";
 import type { QuoteDocumentData } from "@/lib/quote-document";
 import { formatCurrencyPrecise, formatDateLong } from "@/lib/utils";
 import QuotePdfRoomPage from "./QuotePdfRoomPage";
@@ -9,6 +15,7 @@ interface QuotePdfDocumentProps {
   data: QuoteDocumentData;
   includeTax?: boolean;
   leadTimeWeeks?: number;
+  discountPercent?: number;
 }
 
 const PROJECT_SUMMARY_ROW_COUNT = 10;
@@ -17,6 +24,7 @@ export default function QuotePdfDocument({
   data,
   includeTax = false,
   leadTimeWeeks = 7,
+  discountPercent = 0,
 }: QuotePdfDocumentProps) {
   const totalPages = 1 + data.rooms.length;
 
@@ -29,6 +37,7 @@ export default function QuotePdfDocument({
         showThankYou={data.rooms.length === 0}
         includeTax={includeTax}
         leadTimeWeeks={leadTimeWeeks}
+        discountPercent={discountPercent}
       />
       {data.rooms.map((room, index) => (
         <QuotePdfRoomPage
@@ -52,6 +61,7 @@ function QuotePdfSummaryPage({
   showThankYou = false,
   includeTax = false,
   leadTimeWeeks = 7,
+  discountPercent = 0,
 }: {
   data: QuoteDocumentData;
   pageNumber: number;
@@ -59,12 +69,27 @@ function QuotePdfSummaryPage({
   showThankYou?: boolean;
   includeTax?: boolean;
   leadTimeWeeks?: number;
+  discountPercent?: number;
 }) {
   const delivery = data.deliveryTotal;
   const fullAmount = data.roomsTotal + data.servicesTotal;
   const subtotal = fullAmount;
-  const tax = quoteSalesTax(subtotal, includeTax);
-  const total = Math.floor(subtotal + tax);
+  const discountRate = quoteDiscountPercent(discountPercent);
+  const discount = quoteDiscountAmount(subtotal, discountRate);
+  const taxable = Math.max(0, subtotal - discount);
+  const tax = quoteSalesTax(taxable, includeTax);
+  const total = Math.floor(taxable + tax);
+  const totalLines = [
+    ["DELIVERY", formatCurrencyPrecise(delivery)],
+    ["SUBTOTAL", formatCurrencyPrecise(subtotal)],
+    ...(discountRate > 0
+      ? [[
+          "DISCOUNTS",
+          `${formatQuoteDiscountPercent(discountRate)}   ${formatCurrencyPrecise(-discount)}`,
+        ]]
+      : []),
+    ["SALES TAX", formatCurrencyPrecise(tax)],
+  ];
   const projectRows = data.rooms;
   const summaryRows = [
     ...projectRows.map((room, index) => ({
@@ -284,7 +309,7 @@ function QuotePdfSummaryPage({
         style={{
           flex: 1,
           display: "grid",
-          gridTemplateColumns: "1fr 250px",
+          gridTemplateColumns: "1fr 290px",
           columnGap: 12,
           marginBottom: 24,
           minHeight: 0,
@@ -352,22 +377,18 @@ function QuotePdfSummaryPage({
         <div style={{ gridColumn: 2, alignSelf: "end", marginTop: 6, transform: "translateY(6px)" }}>
         <table
           style={{
-            width: 250,
+            width: 290,
             borderCollapse: "collapse",
             fontSize: 13,
             tableLayout: "fixed",
           }}
         >
           <colgroup>
-            <col style={{ width: "38%" }} />
-            <col style={{ width: "62%" }} />
+            <col style={{ width: "42%" }} />
+            <col style={{ width: "58%" }} />
           </colgroup>
           <tbody>
-            {[
-              ["DELIVERY", formatCurrencyPrecise(delivery)],
-              ["SUBTOTAL", formatCurrencyPrecise(subtotal)],
-              ["SALES TAX", formatCurrencyPrecise(tax)],
-            ].map(([label, value]) => (
+            {totalLines.map(([label, value]) => (
               <tr key={label}>
                 <td
                   style={{

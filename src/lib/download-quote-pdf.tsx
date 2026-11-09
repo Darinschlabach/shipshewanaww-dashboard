@@ -150,7 +150,7 @@ async function renderFullWhitePage(pdf: jsPDF, pageEl: HTMLElement): Promise<voi
 
 export async function downloadQuotePdf(
   quote: Lead,
-  options?: { includeTax?: boolean; leadTimeWeeks?: number }
+  options?: { includeTax?: boolean; leadTimeWeeks?: number; discountPercent?: number }
 ): Promise<{ error?: string }> {
   const includeTax = options?.includeTax ?? false;
   const leadTimeWeeks =
@@ -158,6 +158,11 @@ export async function downloadQuotePdf(
     (Number.isFinite(Number(quote.lead_time_weeks))
       ? Number(quote.lead_time_weeks)
       : 7);
+  const discountPercent =
+    options?.discountPercent ??
+    (Number.isFinite(Number(quote.discount_percent))
+      ? Number(quote.discount_percent)
+      : 0);
   const result = await fetchQuoteDocumentData(quote);
   if (result.error || !result.data) {
     return { error: result.error ?? "Could not load quote." };
@@ -176,6 +181,7 @@ export async function downloadQuotePdf(
           data: result.data!,
           includeTax,
           leadTimeWeeks,
+          discountPercent,
         })
       );
     });

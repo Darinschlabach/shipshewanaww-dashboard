@@ -251,6 +251,7 @@ export interface Lead {
   job_id: string | null;
   converted_job_id: string | null;
   lead_time_weeks?: number | null;
+  discount_percent?: number | null;
   graph_drive_id?: string | null;
   graph_folder_item_id?: string | null;
   graph_web_url?: string | null;

@@ -21,6 +21,23 @@ export function quoteSalesTax(subtotal: number, includeTax: boolean): number {
   return includeTax ? subtotal * QUOTE_SALES_TAX_RATE : 0;
 }
 
+/** Whole percent from 0 to 100. Empty or invalid input is no discount. */
+export function quoteDiscountPercent(value: number): number {
+  if (!Number.isFinite(value) || value <= 0) return 0;
+  return Math.min(100, value);
+}
+
+export function quoteDiscountAmount(subtotal: number, percent: number): number {
+  const pct = quoteDiscountPercent(percent);
+  if (pct === 0 || !Number.isFinite(subtotal)) return 0;
+  return Math.round(subtotal * (pct / 100) * 100) / 100;
+}
+
+export function formatQuoteDiscountPercent(percent: number): string {
+  const rounded = Math.round(quoteDiscountPercent(percent) * 100) / 100;
+  return `${rounded}%`;
+}
+
 /** Invoice tax. Unchecked keeps the existing whole-dollar total. */
 export function invoiceTaxTotals(
   subtotal: number,

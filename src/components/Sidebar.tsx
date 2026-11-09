@@ -32,6 +32,8 @@ import {
 
   IconSettings,
 
+  IconCalculator,
+
   IconLogout,
 
   IconChevronDown,
@@ -53,6 +55,10 @@ type NavLink = {
   label: string;
 
   icon: typeof IconLayoutDashboard;
+
+  adminOnly?: boolean;
+
+  badge?: string;
 
 };
 
@@ -152,6 +158,38 @@ const navSections: { label: string; items: NavItem[] }[] = [
 
       },
 
+      {
+
+        type: "link",
+
+        href: "/costing-catalogue",
+
+        label: "Costing Catalogue",
+
+        badge: "TEST",
+
+        icon: IconCalculator,
+
+        adminOnly: true,
+
+      },
+
+      {
+
+        type: "link",
+
+        href: "/costing-quotes",
+
+        label: "Costing Quotes",
+
+        badge: "TEST",
+
+        icon: IconFileInvoice,
+
+        adminOnly: true,
+
+      },
+
     ],
 
   },
@@ -246,6 +284,8 @@ export default function Sidebar() {
 
   const [initials, setInitials] = useState("?");
 
+  const [isAdmin, setIsAdmin] = useState(false);
+
   const [catalogueOpen, setCatalogueOpen] = useState(
 
     () => isCatalogueActive(pathname)
@@ -286,7 +326,7 @@ export default function Sidebar() {
 
         .from("profiles")
 
-        .select("full_name")
+        .select("full_name, role")
 
         .eq("id", user.id)
 
@@ -309,6 +349,8 @@ export default function Sidebar() {
       setDisplayName(formatShortName(name));
 
       setInitials(getInitialsFromName(name));
+
+      setIsAdmin(profile?.role === "owner");
 
     }
 
@@ -374,6 +416,8 @@ export default function Sidebar() {
 
                 if (item.type === "link") {
 
+                  if (item.adminOnly && !isAdmin) return null;
+
                   const active = isActive(pathname, item.href);
 
                   const Icon = item.icon;
@@ -386,7 +430,11 @@ export default function Sidebar() {
 
                         href={item.href}
 
-                        className={`flex items-center gap-2 rounded-r px-3 py-2 text-sm transition-colors ${
+                        className={`flex items-center rounded-r py-2 transition-colors ${
+
+                          item.badge ? "gap-1 px-1.5 text-[12px]" : "gap-2 px-3 text-sm"
+
+                        } ${
 
                           active
 
@@ -398,9 +446,19 @@ export default function Sidebar() {
 
                       >
 
-                        <Icon size={18} stroke={1.5} />
+                        <Icon size={item.badge ? 16 : 18} stroke={1.5} className="shrink-0" />
 
-                        {item.label}
+                        <span className={item.badge ? "whitespace-nowrap" : "min-w-0 flex-1 truncate"}>{item.label}</span>
+
+                        {item.badge ? (
+
+                          <span className="shrink-0 rounded bg-white/15 px-1 py-px text-[8px] font-semibold leading-none tracking-wide text-white/80">
+
+                            {item.badge}
+
+                          </span>
+
+                        ) : null}
 
                       </Link>
 

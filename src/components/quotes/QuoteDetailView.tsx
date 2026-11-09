@@ -38,7 +38,7 @@ import {
   quoteServicesTotal,
 } from "@/lib/quote-services";
 import { downloadQuotePdf } from "@/lib/download-quote-pdf";
-import { COMPANY, quoteSalesTax } from "@/lib/company";
+import { COMPANY, quoteDiscountAmount, quoteDiscountPercent, quoteSalesTax } from "@/lib/company";
 import { formatCurrencyFull, formatDateLong } from "@/lib/utils";
 import type { Lead } from "@/lib/types";
 
@@ -48,6 +48,11 @@ const TABS = [
   { id: "services", label: "Services" },
   { id: "files", label: "Files" },
 ];
+
+function discountFieldValue(percent: number | null | undefined): string {
+  const value = quoteDiscountPercent(Number(percent));
+  return value > 0 ? String(value) : "";
+}
 
 interface QuoteDetailViewProps {
   quote: Lead;
@@ -92,8 +97,16 @@ export default function QuoteDetailView({
     const stored = Number(quote.lead_time_weeks);
     return String(Number.isFinite(stored) && stored > 0 ? stored : 7);
   });
-  const quotePreviewTotal =
-    Math.floor(displayTotal + quoteSalesTax(displayTotal, includeTax));
+  const [discountPercent, setDiscountPercent] = useState(() =>
+    discountFieldValue(quote.discount_percent)
+  );
+  const [discountError, setDiscountError] = useState<string | null>(null);
+  const discountValue = quoteDiscountPercent(Number(discountPercent));
+  const discountAmount = quoteDiscountAmount(displayTotal, discountValue);
+  const discountedTotal = Math.max(0, displayTotal - discountAmount);
+  const quotePreviewTotal = Math.floor(
+    discountedTotal + quoteSalesTax(discountedTotal, includeTax)
+  );
   const [downloadingPdf, setDownloadingPdf] = useState(false);
   const [pdfError, setPdfError] = useState<string | null>(null);
   const [fileCount, setFileCount] = useState(0);
@@ -126,6 +139,7 @@ export default function QuoteDetailView({
     const { error } = await downloadQuotePdf(quote, {
       includeTax,
       leadTimeWeeks: resolvedLeadTimeWeeks(),
+      discountPercent: discountValue,
     });
     if (error) setPdfError(error);
     setDownloadingPdf(false);
@@ -163,6 +177,10 @@ export default function QuoteDetailView({
     setLeadTimeWeeks(String(Number.isFinite(stored) && stored > 0 ? stored : 7));
   }, [quote.lead_time_weeks]);
 
+  useEffect(() => {
+    setDiscountPercent(discountFieldValue(quote.discount_percent));
+  }, [quote.discount_percent]);
+
   async function persistLeadTimeWeeks(weeks: number) {
     const supabase = createClient();
     await supabase
@@ -170,6 +188,30 @@ export default function QuoteDetailView({
       .update({ lead_time_weeks: weeks })
       .eq("id", quote.id);
     onQuoteUpdated?.();
+  }
+
+  async function persistDiscountPercent(percent: number) {
+    const supabase = createClient();
+    const { error } = await supabase
+      .from("leads")
+      .update({ discount_percent: percent })
+      .eq("id", quote.id);
+    if (error) {
+      setDiscountError(
+        error.message.includes("discount_percent")
+          ? "The discount could not be saved yet. Add the discount column in Supabase, then enter it again."
+          : error.message
+      );
+      return;
+    }
+    setDiscountError(null);
+    onQuoteUpdated?.();
+  }
+
+  function commitDiscount() {
+    const percent = quoteDiscountPercent(Number(discountPercent));
+    setDiscountPercent(percent > 0 ? String(percent) : "");
+    void persistDiscountPercent(percent);
   }
 
   async function handleSaveJobName(e: FormEvent) {
@@ -381,7 +423,7 @@ export default function QuoteDetailView({
             </p>
             <p className="mt-1 text-xs text-gray-500">Quote Total</p>
             <p className="text-xl font-semibold text-gray-900">
-              {formatCurrencyFull(displayTotal)}
+              {formatCurrencyFull(discountedTotal)}
             </p>
           </div>
           <div className="p-3">
@@ -450,15 +492,40 @@ export default function QuoteDetailView({
                         </tr>
                       ))
                     )}
+                    <tr className="border-b border-gray-50 text-gray-800">
+                      <td className="py-2">Discounts</td>
+                      <td className="py-2 text-right">
+                        <label className="inline-flex items-center justify-end gap-1">
+                          <input
+                            type="number"
+                            min={0}
+                            max={100}
+                            step="0.01"
+                            value={discountPercent}
+                            onChange={(event) => setDiscountPercent(event.target.value)}
+                            onBlur={commitDiscount}
+                            onKeyDown={(event) => {
+                              if (event.key === "Enter") event.currentTarget.blur();
+                            }}
+                            className="w-16 rounded border border-gray-300 px-1.5 py-0.5 text-right text-sm text-gray-900"
+                            aria-label="Discount percent"
+                          />
+                          <span>%</span>
+                        </label>
+                      </td>
+                    </tr>
                     <tr className="font-semibold text-gray-900">
                       <td className="pt-3">Total</td>
                       <td className="pt-3 text-right">
-                        {formatCurrencyFull(displayTotal)}
+                        {formatCurrencyFull(discountedTotal)}
                       </td>
                     </tr>
                   </tbody>
                 </table>
               </div>
+              {discountError ? (
+                <p className="mt-2 text-xs text-red-600">{discountError}</p>
+              ) : null}
               {meta.expirationDate && (
                 <div className="mt-2 shrink-0 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
                   This quote is valid for 30 days. Expiration Date:{" "}
